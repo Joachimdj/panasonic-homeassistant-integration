@@ -7,6 +7,9 @@ A custom Home Assistant integration for Panasonic Aquarea heat pumps using the a
 - **Climate Control**: Control heating/cooling modes and temperature settings for each zone
 - **Temperature Monitoring**: Monitor current temperatures for all zones and tank
 - **Water Heater Control**: Control and monitor the hot water tank (if equipped)
+- **Energy Monitoring**: Comprehensive kWh usage tracking with power consumption, daily/total energy, heating/DHW breakdowns, and COP efficiency monitoring
+- **Cloud Comfort Features**: Advanced controls including eco mode, powerful mode, quiet mode, holiday mode, and scheduling
+- **Activity Integration**: Automatic logging of all changes to Home Assistant's Activity widget
 - **Real-time Updates**: Automatic data refresh every 30 seconds
 
 ## Installation
@@ -51,8 +54,24 @@ After configuration, the integration will create the following entities for each
 
 ### Sensor Entities
 
+#### Temperature Sensors
 - `sensor.{device_name}_{zone_name}_temperature` - Current temperature for each zone
 - `sensor.{device_name}_tank_temperature` - Tank temperature (if equipped)
+- `sensor.{device_name}_outdoor_temperature` - Outdoor temperature
+
+#### Energy Monitoring Sensors
+- `sensor.{device_name}_power_consumption` - Real-time power consumption (W)
+- `sensor.{device_name}_energy_today` - Daily energy consumption (kWh)
+- `sensor.{device_name}_energy_total` - Total energy consumption (kWh)
+- `sensor.{device_name}_heating_energy_today` - Daily heating energy (kWh)
+- `sensor.{device_name}_dhw_energy_today` - Daily hot water energy (kWh)
+- `sensor.{device_name}_cop` - Coefficient of Performance efficiency rating
+
+#### Status Sensors
+- `sensor.{device_name}_operation_mode` - Current operation mode
+- `sensor.{device_name}_pump_duty` - Pump duty cycle percentage
+- `sensor.{device_name}_water_pressure` - System water pressure
+- And many more operational sensors...
 
 ### Water Heater Entities
 

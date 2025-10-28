@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature, UnitOfPressure, PERCENTAGE
+from homeassistant.const import UnitOfTemperature, UnitOfPressure, UnitOfPower, UnitOfEnergy, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -113,6 +113,14 @@ async def async_setup_entry(
             AquareaControlBoxSensor(coordinator, device_id),
             AquareaExternalHeaterSensor(coordinator, device_id),
             AquareaMultiOdConnectionSensor(coordinator, device_id),
+            
+            # Energy consumption sensors
+            AquareaPowerConsumptionSensor(coordinator, device_id),
+            AquareaEnergyTodaySensor(coordinator, device_id),
+            AquareaEnergyTotalSensor(coordinator, device_id),
+            AquareaHeatingEnergyTodaySensor(coordinator, device_id),
+            AquareaDHWEnergyTodaySensor(coordinator, device_id),
+            AquareaCOPSensor(coordinator, device_id),
         ])
         
         # Tank temperature sensor (if has tank)
@@ -1280,4 +1288,344 @@ class AquareaReheatModeSensor(AquareaSensorBase):
             tank_status = raw_data['status']['tankStatus']
             reheat_mode = tank_status.get('reheatMode')
             return "On" if reheat_mode == 1 else "Off"
+
+
+class AquareaPowerConsumptionSensor(AquareaSensorBase):
+    """Current power consumption sensor."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the power consumption sensor."""
+        super().__init__(coordinator, device_id, "Power Consumption")
+        self._attr_native_unit_of_measurement = UnitOfPower.WATT
+        self._attr_device_class = SensorDeviceClass.POWER
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current power consumption in watts."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            # Calculate estimated power consumption based on operation mode and pump duty
+            operation_mode = raw_data['status'].get('operationMode', 0)
+            pump_duty = raw_data['status'].get('pumpDuty', 0)
+            powerful = raw_data['status'].get('powerful', 0)
+            force_heater = raw_data['status'].get('forceHeater', 0)
+            
+            # Base power consumption estimates (typical values for Aquarea heat pumps)
+            base_power = 0
+            
+            if operation_mode == 0:  # Off
+                base_power = 50  # Standby power
+            elif operation_mode == 1:  # Heat mode
+                base_power = 1500 + (pump_duty * 500)  # 1.5-2.5kW typical for heating
+            elif operation_mode == 2:  # Cool mode
+                base_power = 1200 + (pump_duty * 400)  # Slightly less for cooling
+            else:
+                base_power = 800  # Other modes
+                
+            # Adjust for special modes
+            if powerful == 1:
+                base_power *= 1.3  # Powerful mode uses more energy
+            if force_heater == 1:
+                base_power += 3000  # Electric heater adds significant consumption
+                
+            return round(base_power, 1)
+        return None
+
+
+class AquareaEnergyTodaySensor(AquareaSensorBase):
+    """Daily energy consumption sensor."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the daily energy sensor."""
+        super().__init__(coordinator, device_id, "Energy Today")
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._daily_total = 0.0
+        self._last_power = 0.0
+        self._last_update = None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the daily energy consumption in kWh."""
+        from datetime import datetime, timezone
+        
+        # Get current power consumption
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return self._daily_total
+            
+        # Find power consumption sensor value
+        current_power = 0
+        for entity in self.coordinator.hass.states.async_all():
+            if (entity.entity_id == f"sensor.{self._device_id.replace('_', '')}_power_consumption" 
+                or "power_consumption" in entity.entity_id and self._device_id in entity.entity_id):
+                try:
+                    current_power = float(entity.state)
+                    break
+                except (ValueError, TypeError):
+                    continue
+        
+        now = datetime.now(timezone.utc)
+        
+        # Reset daily total at midnight
+        if self._last_update and now.date() != self._last_update.date():
+            self._daily_total = 0.0
+            
+        # Calculate energy increment if we have previous data
+        if self._last_update and self._last_power:
+            time_diff_hours = (now - self._last_update).total_seconds() / 3600
+            avg_power = (current_power + self._last_power) / 2
+            energy_increment = (avg_power * time_diff_hours) / 1000  # Convert W to kWh
+            self._daily_total += energy_increment
+            
+        self._last_power = current_power
+        self._last_update = now
+        
+        return round(self._daily_total, 3)
+
+
+class AquareaEnergyTotalSensor(AquareaSensorBase):
+    """Total energy consumption sensor."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the total energy sensor."""
+        super().__init__(coordinator, device_id, "Energy Total")
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._total_energy = 0.0
+        self._last_power = 0.0
+        self._last_update = None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the total energy consumption in kWh."""
+        from datetime import datetime, timezone
+        
+        # Get current power consumption
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return self._total_energy
+            
+        # Find power consumption sensor value
+        current_power = 0
+        for entity in self.coordinator.hass.states.async_all():
+            if (entity.entity_id == f"sensor.{self._device_id.replace('_', '')}_power_consumption" 
+                or "power_consumption" in entity.entity_id and self._device_id in entity.entity_id):
+                try:
+                    current_power = float(entity.state)
+                    break
+                except (ValueError, TypeError):
+                    continue
+        
+        now = datetime.now(timezone.utc)
+            
+        # Calculate energy increment if we have previous data
+        if self._last_update and self._last_power:
+            time_diff_hours = (now - self._last_update).total_seconds() / 3600
+            avg_power = (current_power + self._last_power) / 2
+            energy_increment = (avg_power * time_diff_hours) / 1000  # Convert W to kWh
+            self._total_energy += energy_increment
+            
+        self._last_power = current_power
+        self._last_update = now
+        
+        return round(self._total_energy, 3)
+
+
+class AquareaHeatingEnergyTodaySensor(AquareaSensorBase):
+    """Daily heating energy consumption sensor."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the daily heating energy sensor."""
+        super().__init__(coordinator, device_id, "Heating Energy Today")
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._daily_heating_total = 0.0
+        self._last_update = None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the daily heating energy consumption in kWh."""
+        from datetime import datetime, timezone
+        
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return self._daily_heating_total
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or 'status' not in raw_data:
+            return self._daily_heating_total
+            
+        now = datetime.now(timezone.utc)
+        
+        # Reset daily total at midnight
+        if self._last_update and now.date() != self._last_update.date():
+            self._daily_heating_total = 0.0
+            
+        # Only count energy when in heating mode
+        operation_mode = raw_data['status'].get('operationMode', 0)
+        if operation_mode == 1 and self._last_update:  # Heat mode
+            # Find power consumption sensor value
+            current_power = 0
+            for entity in self.coordinator.hass.states.async_all():
+                if (entity.entity_id == f"sensor.{self._device_id.replace('_', '')}_power_consumption" 
+                    or "power_consumption" in entity.entity_id and self._device_id in entity.entity_id):
+                    try:
+                        current_power = float(entity.state)
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            
+            if current_power > 0:
+                time_diff_hours = (now - self._last_update).total_seconds() / 3600
+                energy_increment = (current_power * time_diff_hours) / 1000  # Convert W to kWh
+                self._daily_heating_total += energy_increment
+            
+        self._last_update = now
+        return round(self._daily_heating_total, 3)
+
+
+class AquareaDHWEnergyTodaySensor(AquareaSensorBase):
+    """Daily DHW (Domestic Hot Water) energy consumption sensor."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the daily DHW energy sensor."""
+        super().__init__(coordinator, device_id, "DHW Energy Today")
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._daily_dhw_total = 0.0
+        self._last_update = None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the daily DHW energy consumption in kWh."""
+        from datetime import datetime, timezone
+        
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return self._daily_dhw_total
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or 'status' not in raw_data:
+            return self._daily_dhw_total
+            
+        now = datetime.now(timezone.utc)
+        
+        # Reset daily total at midnight
+        if self._last_update and now.date() != self._last_update.date():
+            self._daily_dhw_total = 0.0
+            
+        # Only count energy when DHW is active
+        force_dhw = raw_data['status'].get('forceDHW', 0)
+        tank_heating = False
+        
+        # Check if tank is heating
+        if 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            tank_operation = tank_status.get('operationStatus', 0)
+            tank_heating = tank_operation == 1
+            
+        if (force_dhw == 1 or tank_heating) and self._last_update:
+            # Find power consumption sensor value
+            current_power = 0
+            for entity in self.coordinator.hass.states.async_all():
+                if (entity.entity_id == f"sensor.{self._device_id.replace('_', '')}_power_consumption" 
+                    or "power_consumption" in entity.entity_id and self._device_id in entity.entity_id):
+                    try:
+                        current_power = float(entity.state)
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            
+            if current_power > 0:
+                time_diff_hours = (now - self._last_update).total_seconds() / 3600
+                # Assume 60% of power goes to DHW when tank is heating
+                dhw_power = current_power * 0.6
+                energy_increment = (dhw_power * time_diff_hours) / 1000  # Convert W to kWh
+                self._daily_dhw_total += energy_increment
+            
+        self._last_update = now
+        return round(self._daily_dhw_total, 3)
+
+
+class AquareaCOPSensor(AquareaSensorBase):
+    """Coefficient of Performance sensor."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the COP sensor."""
+        super().__init__(coordinator, device_id, "COP (Coefficient of Performance)")
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the estimated COP value."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or 'status' not in raw_data:
+            return None
+            
+        # Get outdoor temperature and operation mode
+        outdoor_temp = raw_data['status'].get('outdoorNow', 0)
+        operation_mode = raw_data['status'].get('operationMode', 0)
+        powerful = raw_data['status'].get('powerful', 0)
+        
+        if operation_mode != 1:  # Only calculate COP for heating mode
+            return None
+            
+        # Calculate COP based on outdoor temperature
+        # These are typical values for modern heat pumps
+        if outdoor_temp >= 10:
+            base_cop = 4.5
+        elif outdoor_temp >= 5:
+            base_cop = 4.0
+        elif outdoor_temp >= 0:
+            base_cop = 3.5
+        elif outdoor_temp >= -5:
+            base_cop = 3.0
+        elif outdoor_temp >= -10:
+            base_cop = 2.5
+        else:
+            base_cop = 2.0
+            
+        # Adjust for powerful mode (less efficient)
+        if powerful == 1:
+            base_cop *= 0.85
+            
+        return round(base_cop, 2)
         return None
