@@ -163,20 +163,24 @@ def _register_activity_feed(hass: HomeAssistant) -> None:
             else:
                 message = f"Panasonic Aquarea {device_type} {action}"
             
-            # Log the activity with appropriate level
+                        # Log the activity with appropriate level
             _LOGGER.info("Activity: %s", message)
             
-            # Fire a logbook event for Home Assistant activity feed
-            hass.bus.async_fire(
-                "logbook_entry",
-                {
-                    "name": "Panasonic Aquarea",
-                    "message": message,
-                    "domain": DOMAIN,
-                    "entity_id": data.get("entity_id"),
-                    "source": "panasonic_aquarea"
-                }
-            )
+            # Fire a logbook event for Home Assistant activity feed (thread-safe)
+            try:
+                # Use call_soon_threadsafe to safely fire event from any thread
+                hass.loop.call_soon_threadsafe(
+                    hass.bus.async_fire,
+                    "logbook_entry",
+                    {
+                        "name": "Panasonic Aquarea",
+                        "message": message,
+                        "domain": DOMAIN,
+                        "entity_id": None,
+                    },
+                )
+            except Exception as e:
+                _LOGGER.debug("Failed to fire logbook event: %s", e)
             
         except Exception as err:
             _LOGGER.debug("Failed to handle activity event: %s", err)
