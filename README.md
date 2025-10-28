@@ -24,7 +24,7 @@ A custom Home Assistant integration for Panasonic Aquarea heat pumps using the a
 1. Add this repository as a custom repository in HACS:
 
    - Go to HACS → Integrations → ⋯ → Custom repositories
-   - Repository: `https://github.com/joachimdj/aioaquarea-homeassistant`
+   - Repository: `https://github.com/Joachimdj/panasonic-homeassistant-integration`
    - Category: Integration
 
 2. Install the integration through HACS.
@@ -131,7 +131,7 @@ automation:
 
 ## Support
 
-- [GitHub Issues](https://github.com/cjaliaga/aioaquarea/issues)
+- [GitHub Issues](https://github.com/Joachimdj/panasonic-homeassistant-integration/issues)
 - [Home Assistant Community Forum](https://community.home-assistant.io/)
 
 ## Credits

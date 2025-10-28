@@ -1,0 +1,9 @@
+{
+  "name": "Panasonic Aquarea",
+  "content_in_root": false,
+  "filename": "panasonic_aquarea",
+  "country": [],
+  "homeassistant": "2023.1.0",
+  "iot_class": "Cloud Polling",
+  "render_readme": true
+}
