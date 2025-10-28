@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from aioaquarea.data import OperationStatus
+from aioaquarea.data import OperationStatus, UpdateOperationMode
 
 from . import AquareaDataUpdateCoordinator
 from .const import (
@@ -275,50 +275,47 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             _LOGGER.warning("❌ No raw data available - cannot update temperature")
             return
         
-        # === ATTEMPT REAL API CALL (if available) ===
+        # === ATTEMPT REAL API CALL (using proper aioaquarea methods) ===
         device = device_data.get("device")
         api_success = False
         
         if device:
-            # Try the most likely real API methods
-            api_methods = [
-                ('set_dhw_target_temperature', 'DHW target temperature'),
-                ('set_tank_target_temperature', 'tank target temperature'),
-                ('set_dhw_temperature', 'DHW temperature'),
-                ('set_tank_temperature', 'tank temperature'),
-            ]
+            try:
+                # Use the aioaquarea device methods as shown in the example
+                # First try to set the tank temperature (water heater specific)
+                if hasattr(device, 'set_tank_target_temperature'):
+                    await device.set_tank_target_temperature(temperature)
+                    _LOGGER.info("🌐 API SUCCESS: Set tank target temperature using set_tank_target_temperature(%s°C)", temperature)
+                    api_success = True
+                elif hasattr(device, 'set_dhw_target_temperature'):
+                    await device.set_dhw_target_temperature(temperature)
+                    _LOGGER.info("🌐 API SUCCESS: Set DHW target temperature using set_dhw_target_temperature(%s°C)", temperature)
+                    api_success = True
+                # Fallback to generic temperature setting methods
+                elif hasattr(device, 'set_temperature'):
+                    await device.set_temperature(temperature)
+                    _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(%s°C)", temperature)
+                    api_success = True
+                else:
+                    _LOGGER.warning("🌐 API INFO: No temperature setting methods found on device")
+                    
+            except Exception as err:
+                _LOGGER.warning("🌐 API FAILED: Temperature setting failed: %s", err)
             
-            for method_name, description in api_methods:
-                if hasattr(device, method_name):
-                    try:
-                        method = getattr(device, method_name)
-                        await method(temperature)
-                        _LOGGER.info("🌐 API SUCCESS: Set %s using %s(%s°C)", description, method_name, temperature)
-                        api_success = True
-                        break
-                    except Exception as err:
-                        _LOGGER.warning("🌐 API FAILED: %s failed: %s", method_name, err)
-                        continue
-            
-            # Try tank object methods
+            # Try tank object methods if main device methods didn't work
             if not api_success and hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
                 tank = device.status.tank
-                tank_methods = [
-                    ('set_target_temperature', 'tank target'),
-                    ('set_temperature', 'tank temperature'),
-                ]
-                
-                for method_name, description in tank_methods:
-                    if hasattr(tank, method_name):
-                        try:
-                            method = getattr(tank, method_name)
-                            await method(temperature)
-                            _LOGGER.info("🌐 API SUCCESS: Set %s using tank.%s(%s°C)", description, method_name, temperature)
-                            api_success = True
-                            break
-                        except Exception as err:
-                            _LOGGER.warning("🌐 API FAILED: tank.%s failed: %s", method_name, err)
-                            continue
+                try:
+                    if hasattr(tank, 'set_target_temperature'):
+                        await tank.set_target_temperature(temperature)
+                        _LOGGER.info("🌐 API SUCCESS: Set tank target using tank.set_target_temperature(%s°C)", temperature)
+                        api_success = True
+                    elif hasattr(tank, 'set_temperature'):
+                        await tank.set_temperature(temperature)
+                        _LOGGER.info("🌐 API SUCCESS: Set tank temperature using tank.set_temperature(%s°C)", temperature)
+                        api_success = True
+                except Exception as err:
+                    _LOGGER.warning("🌐 Tank API FAILED: %s", err)
         
         if api_success:
             _LOGGER.info("✅ Real API call succeeded - waiting for device response")
@@ -540,31 +537,36 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         # TODO: When aioaquarea library supports it, replace with real API calls
 
     def _log_state_change(self, action: str, old_value: Any = None, new_value: Any = None) -> None:
-        """Log state changes for the Activity widget."""
+        """Log state changes for the Activity widget using logbook service."""
         try:
             # Create a detailed log message for the activity widget
             if old_value is not None and new_value is not None:
                 message = f"Water heater {action}: {old_value} → {new_value}"
+                name = f"Panasonic Heat Pump Water Heater"
             else:
                 message = f"Water heater {action}"
+                name = f"Panasonic Heat Pump Water Heater"
             
-            # Log with INFO level to ensure it appears in Home Assistant logs and activity
+            # Log with INFO level 
             _LOGGER.info("%s for device %s", message, self._device_id)
             
-            # Fire a custom event for the activity widget
+            # Use logbook service to create proper activity entries
             if self.hass:
-                self.hass.bus.async_fire(
-                    "panasonic_aquarea_action",
-                    {
-                        "entity_id": self.entity_id,
-                        "device_id": self._device_id,
-                        "action": action,
-                        "old_value": old_value,
-                        "new_value": new_value,
-                        "timestamp": dt_util.utcnow().isoformat(),
-                        "device_type": "water_heater"
-                    }
-                )
+                def fire_logbook_event():
+                    """Fire the logbook event in a thread-safe way."""
+                    self.hass.services.async_call(
+                        "logbook",
+                        "log", 
+                        {
+                            "name": name,
+                            "message": message,
+                            "entity_id": self.entity_id,
+                        }
+                    )
+                
+                # Use call_soon_threadsafe for thread safety
+                self.hass.loop.call_soon_threadsafe(fire_logbook_event)
+                
         except Exception as err:
             _LOGGER.debug("Failed to log state change: %s", err)
 

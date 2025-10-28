@@ -141,33 +141,35 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = f"{device_id}_zone_{zone_id}"
 
     def _log_state_change(self, action: str, old_value: Any = None, new_value: Any = None) -> None:
-        """Log state changes for the Activity widget."""
+        """Log state changes for the Activity widget using logbook service."""
         try:
             # Create a detailed log message for the activity widget
             if old_value is not None and new_value is not None:
                 message = f"Climate Zone {self._zone_id} {action}: {old_value} → {new_value}"
+                name = f"Panasonic Heat Pump Climate Zone {self._zone_id}"
             else:
                 message = f"Climate Zone {self._zone_id} {action}"
+                name = f"Panasonic Heat Pump Climate Zone {self._zone_id}"
             
-            # Log with INFO level to ensure it appears in Home Assistant logs and activity
+            # Log with INFO level 
             _LOGGER.info("%s for device %s", message, self._device_id)
             
-            # Fire a custom event for the activity widget
+            # Use logbook service to create proper activity entries
             if self.hass:
-                self.hass.bus.async_fire(
-                    "panasonic_aquarea_action",
-                    {
-                        "entity_id": self.entity_id,
-                        "device_id": self._device_id,
-                        "zone_id": self._zone_id,
-                        "zone_name": self._zone_name,
-                        "action": action,
-                        "old_value": old_value,
-                        "new_value": new_value,
-                        "timestamp": dt_util.utcnow().isoformat(),
-                        "device_type": "climate"
-                    }
-                )
+                def fire_logbook_event():
+                    """Fire the logbook event in a thread-safe way."""
+                    self.hass.services.async_call(
+                        "logbook",
+                        "log", 
+                        {
+                            "name": name,
+                            "message": message,
+                            "entity_id": self.entity_id,
+                        }
+                    )
+                
+                # Use call_soon_threadsafe for thread safety
+                self.hass.loop.call_soon_threadsafe(fire_logbook_event)
         except Exception as err:
             _LOGGER.debug("Failed to log state change: %s", err)
 
@@ -420,31 +422,32 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             _LOGGER.warning("❌ No raw data available to update HVAC mode")
             return
 
-        # === ATTEMPT REAL API CALL (if available) ===
+        # === ATTEMPT REAL API CALL (using proper aioaquarea methods) ===
         device = device_data.get("device")
         api_success = False
         
         if device:
             operation_mode = HVAC_MODE_TO_OPERATION_MODE[hvac_mode]
             
-            # Try the most likely real API methods
-            api_methods = [
-                ('set_operation_mode', 'operation mode'),
-                ('set_hvac_mode', 'HVAC mode'),
-                ('set_mode', 'mode'),
-            ]
-            
-            for method_name, description in api_methods:
-                if hasattr(device, method_name):
-                    try:
-                        method = getattr(device, method_name)
-                        await method(operation_mode)
-                        _LOGGER.info("🌐 API SUCCESS: Set %s using %s(%s)", description, method_name, operation_mode)
-                        api_success = True
-                        break
-                    except Exception as err:
-                        _LOGGER.warning("🌐 API FAILED: %s failed: %s", method_name, err)
-                        continue
+            try:
+                # Use the aioaquarea device.set_mode method as shown in the example
+                if hasattr(device, 'set_mode'):
+                    await device.set_mode(operation_mode)
+                    _LOGGER.info("🌐 API SUCCESS: Set mode using device.set_mode(%s) for HVAC mode %s", operation_mode, hvac_mode)
+                    api_success = True
+                elif hasattr(device, 'set_operation_mode'):
+                    await device.set_operation_mode(operation_mode)
+                    _LOGGER.info("🌐 API SUCCESS: Set operation mode using device.set_operation_mode(%s)", operation_mode)
+                    api_success = True
+                elif hasattr(device, 'set_hvac_mode'):
+                    await device.set_hvac_mode(hvac_mode)
+                    _LOGGER.info("🌐 API SUCCESS: Set HVAC mode using device.set_hvac_mode(%s)", hvac_mode)
+                    api_success = True
+                else:
+                    _LOGGER.warning("🌐 API INFO: No HVAC mode setting methods found on device")
+                    
+            except Exception as err:
+                _LOGGER.warning("🌐 API FAILED: HVAC mode setting failed: %s", err)
         
         if api_success:
             _LOGGER.info("✅ Real API call succeeded - waiting for device response")

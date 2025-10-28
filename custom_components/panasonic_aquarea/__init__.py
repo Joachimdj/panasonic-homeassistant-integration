@@ -166,19 +166,23 @@ def _register_activity_feed(hass: HomeAssistant) -> None:
                         # Log the activity with appropriate level
             _LOGGER.info("Activity: %s", message)
             
-            # Fire a logbook event for Home Assistant activity feed (thread-safe)
+            # Use logbook service to create proper activity entries (thread-safe)
             try:
-                # Use call_soon_threadsafe to safely fire event from any thread
-                hass.loop.call_soon_threadsafe(
-                    hass.bus.async_fire,
-                    "logbook_entry",
-                    {
-                        "name": "Panasonic Aquarea",
-                        "message": message,
-                        "domain": DOMAIN,
-                        "entity_id": None,
-                    },
-                )
+                def fire_logbook_event():
+                    """Fire the logbook event in a thread-safe way."""
+                    hass.services.async_call(
+                        "logbook",
+                        "log", 
+                        {
+                            "name": "Panasonic Aquarea",
+                            "message": message,
+                            "entity_id": data.get("entity_id"),
+                        }
+                    )
+                
+                # Use call_soon_threadsafe for thread safety
+                hass.loop.call_soon_threadsafe(fire_logbook_event)
+                
             except Exception as e:
                 _LOGGER.debug("Failed to fire logbook event: %s", e)
             
@@ -392,12 +396,17 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Update data via library."""
         try:
-            devices_info = await self.client.get_devices()
+            # Get devices with long ID included as per aioaquarea example
+            devices_info = await self.client.get_devices(include_long_id=True)
             devices_data = {}
             
             for device_info in devices_info:
                 try:
-                    device = await self.client.get_device(device_info=device_info)
+                    # Get device with consumption refresh interval as per aioaquarea example
+                    device = await self.client.get_device(
+                        device_info=device_info, 
+                        consumption_refresh_interval=timedelta(minutes=1)
+                    )
                     await device.refresh_data()
                     
                     # Comprehensive debug logging to understand data structure
