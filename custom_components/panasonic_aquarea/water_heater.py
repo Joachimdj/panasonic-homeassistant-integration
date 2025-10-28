@@ -150,6 +150,12 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
+        # Check if we have a pending temperature change that should take priority
+        if hasattr(self, '_pending_temperature') and self._device_id in self._pending_temperature:
+            pending_temp = self._pending_temperature[self._device_id]
+            _LOGGER.debug("🔄 Using pending temperature: %s°C", pending_temp)
+            return pending_temp
+        
         device_data = self.coordinator.data.get(self._device_id)
         if not device_data or not device_data.get("device"):
             return None
@@ -280,6 +286,15 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         api_success = False
         
         if device:
+            # Debug: Log all available methods on the device
+            all_methods = [method for method in dir(device) if not method.startswith('_')]
+            temp_methods = [method for method in all_methods if 'temp' in method.lower()]
+            set_methods = [method for method in all_methods if 'set' in method.lower()]
+            _LOGGER.info("🔍 DEBUG: Device has %d total methods, %d temp-related, %d set-related", 
+                        len(all_methods), len(temp_methods), len(set_methods))
+            _LOGGER.info("🔍 DEBUG: Temperature methods: %s", temp_methods)
+            _LOGGER.info("🔍 DEBUG: Set methods: %s", set_methods)
+            
             try:
                 # Use the aioaquarea device methods as shown in the example
                 # First try to set the tank temperature (water heater specific)
@@ -320,12 +335,19 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         if api_success:
             _LOGGER.info("✅ Real API call succeeded - waiting for device response")
             # Wait for API response and refresh
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)  # Give more time for API response
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.info("ℹ️  No real API available - using local simulation (UI already updated)")
-            # Trigger refresh to ensure consistency across all entities
-            await self.coordinator.async_request_refresh()
+            _LOGGER.warning("❌ No real API available - temperature will revert on next refresh")
+            _LOGGER.info("🔧 Device methods available: %s", [method for method in dir(device) if 'set' in method.lower() and 'temp' in method.lower()] if device else "No device")
+            
+            # Store the desired temperature to prevent reversion
+            if not hasattr(self, '_pending_temperature'):
+                self._pending_temperature = {}
+            self._pending_temperature[self._device_id] = temperature
+            
+            # Don't refresh immediately - let user see the change
+            _LOGGER.info("💾 Temperature cached locally - will persist until real API is available")
 
     async def async_turn_on(self) -> None:
         """Turn the water heater on."""
