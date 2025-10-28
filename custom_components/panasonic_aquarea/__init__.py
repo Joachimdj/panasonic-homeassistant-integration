@@ -77,19 +77,26 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                     await device.refresh_data()
                     
                     # Debug logging to understand data structure
-                    _LOGGER.info("Device info attributes: %s", dir(device_info))
-                    _LOGGER.info("Device attributes: %s", dir(device))
-                    _LOGGER.info("Device info dict: %s", vars(device_info) if hasattr(device_info, '__dict__') else "No __dict__")
-                    _LOGGER.info("Device dict: %s", vars(device) if hasattr(device, '__dict__') else "No __dict__")
+                    _LOGGER.debug("Device info: %s", device_info)
+                    _LOGGER.debug("Device: %s", device)
                     
-                    if hasattr(device, 'status') and device.status:
-                        _LOGGER.info("Device status attributes: %s", dir(device.status))
-                        _LOGGER.info("Device status dict: %s", vars(device.status) if hasattr(device.status, '__dict__') else "No __dict__")
+                    # Try to get raw data if available
+                    raw_data = None
+                    if hasattr(device, 'raw_data'):
+                        raw_data = device.raw_data
+                    elif hasattr(device, '_raw_data'):
+                        raw_data = device._raw_data
+                    elif hasattr(device, 'data'):
+                        raw_data = device.data
+                        
+                    if raw_data:
+                        _LOGGER.info("Raw device data found: %s", raw_data)
                     
                     devices_data[device_info.device_id] = {
                         "info": device_info,
                         "device": device,
                         "status": device.status if hasattr(device, 'status') else None,
+                        "raw_data": raw_data,
                     }
                 except Exception as err:
                     _LOGGER.warning(

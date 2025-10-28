@@ -31,16 +31,38 @@ async def async_setup_entry(
     
     entities = []
     for device_id, device_data in coordinator.data.items():
-        device_info = device_data["info"]
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
         
-        # Zone temperature sensors
-        for zone in device_info.zones:
-            entities.append(
-                AquareaTemperatureSensor(coordinator, device_id, zone.zone_id, zone.name)
-            )
+        # Zone temperature sensors - try device_info first
+        zones = []
+        if device_info and hasattr(device_info, 'zones'):
+            zones = device_info.zones
+        # Fallback to raw data if available
+        elif raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            for zone_status in raw_data['status']['zoneStatus']:
+                zones.append({
+                    'zone_id': zone_status.get('zoneId', 1),
+                    'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
+                })
+        
+        for zone in zones:
+            zone_id = getattr(zone, 'zone_id', None) or zone.get('zone_id')
+            zone_name = getattr(zone, 'name', None) or zone.get('name')
+            if zone_id and zone_name:
+                entities.append(
+                    AquareaTemperatureSensor(coordinator, device_id, zone_id, zone_name)
+                )
         
         # Tank temperature sensor (if has tank)
-        if device_info.has_tank:
+        has_tank = False
+        if device_info and hasattr(device_info, 'has_tank'):
+            has_tank = device_info.has_tank
+        elif raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            # If tank status exists in raw data, assume it has a tank
+            has_tank = True
+            
+        if has_tank:
             entities.append(
                 AquareaTankTemperatureSensor(coordinator, device_id)
             )
@@ -62,17 +84,37 @@ class AquareaSensorBase(CoordinatorEntity, SensorEntity):
         self._device_id = device_id
         self._sensor_type = sensor_type
         
-        device_info = self.coordinator.data[device_id]["info"]
-        self._attr_name = f"{device_info.name} {sensor_type}"
+        device_data = self.coordinator.data.get(device_id, {})
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Get device name
+        device_name = "Unknown Device"
+        if device_info and hasattr(device_info, 'name'):
+            device_name = device_info.name
+        elif raw_data and 'a2wName' in raw_data:
+            device_name = raw_data['a2wName']
+            
+        self._attr_name = f"{device_name} {sensor_type}"
         self._attr_unique_id = f"{device_id}_{sensor_type.lower().replace(' ', '_')}"
 
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        device_info = self.coordinator.data[self._device_id]["info"]
+        device_data = self.coordinator.data.get(self._device_id, {})
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Try to get device name from device_info first
+        device_name = "Unknown Device"
+        if device_info and hasattr(device_info, 'name'):
+            device_name = device_info.name
+        elif raw_data and 'a2wName' in raw_data:
+            device_name = raw_data['a2wName']
+            
         return {
             "identifiers": {(DOMAIN, self._device_id)},
-            "name": device_info.name,
+            "name": device_name,
             "manufacturer": "Panasonic",
             "model": "Aquarea Heat Pump",
         }
@@ -103,10 +145,26 @@ class AquareaTemperatureSensor(AquareaSensorBase):
             return None
             
         device = device_data["device"]
+        
+        # Try to get temperature from structured device.status first
         if hasattr(device, 'status') and device.status:
-            for zone in device.status.zones:
-                if zone.zone_id == self._zone_id:
-                    return zone.temperature
+            if hasattr(device.status, 'zones'):
+                for zone in device.status.zones:
+                    if zone.zone_id == self._zone_id:
+                        temp = getattr(zone, 'temperature', None)
+                        if temp is not None:
+                            return temp
+        
+        # Try to get temperature from raw data as fallback
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            for zone_status in raw_data['status']['zoneStatus']:
+                if zone_status.get('zoneId') == self._zone_id:
+                    temp_now = zone_status.get('temperatureNow')
+                    if temp_now is not None:
+                        # Convert from tenths of degrees to degrees
+                        return float(temp_now) / 10.0
+        
         return None
 
 
@@ -132,6 +190,20 @@ class AquareaTankTemperatureSensor(AquareaSensorBase):
             return None
             
         device = device_data["device"]
+        
+        # Try to get tank temperature from structured device.status first
         if hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
-            return device.status.tank.temperature
+            temp = getattr(device.status.tank, 'temperature', None)
+            if temp is not None:
+                return temp
+        
+        # Try to get tank temperature from raw data as fallback
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            temp_now = tank_status.get('temperatureNow')
+            if temp_now is not None:
+                # Tank temperature is already in degrees
+                return float(temp_now)
+        
         return None

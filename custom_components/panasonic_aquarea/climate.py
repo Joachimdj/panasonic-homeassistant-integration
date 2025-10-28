@@ -43,11 +43,29 @@ async def async_setup_entry(
     
     entities = []
     for device_id, device_data in coordinator.data.items():
-        device_info = device_data["info"]
-        for zone in device_info.zones:
-            entities.append(
-                AquareaClimate(coordinator, device_id, zone.zone_id, zone.name)
-            )
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Try to get zones from device_info first
+        zones = []
+        if device_info and hasattr(device_info, 'zones'):
+            zones = device_info.zones
+        # Fallback to raw data if available
+        elif raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            for zone_status in raw_data['status']['zoneStatus']:
+                # Create a simple zone object from raw data
+                zones.append({
+                    'zone_id': zone_status.get('zoneId', 1),
+                    'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
+                })
+        
+        for zone in zones:
+            zone_id = getattr(zone, 'zone_id', None) or zone.get('zone_id')
+            zone_name = getattr(zone, 'name', None) or zone.get('name')
+            if zone_id and zone_name:
+                entities.append(
+                    AquareaClimate(coordinator, device_id, zone_id, zone_name)
+                )
     
     async_add_entities(entities)
 
@@ -68,17 +86,37 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
         self._zone_id = zone_id
         self._zone_name = zone_name
         
-        device_info = self.coordinator.data[device_id]["info"]
-        self._attr_name = f"{device_info.name} {zone_name}"
+        device_data = self.coordinator.data.get(device_id, {})
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Get device name
+        device_name = "Unknown Device"
+        if device_info and hasattr(device_info, 'name'):
+            device_name = device_info.name
+        elif raw_data and 'a2wName' in raw_data:
+            device_name = raw_data['a2wName']
+            
+        self._attr_name = f"{device_name} {zone_name}"
         self._attr_unique_id = f"{device_id}_zone_{zone_id}"
 
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        device_info = self.coordinator.data[self._device_id]["info"]
+        device_data = self.coordinator.data.get(self._device_id, {})
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Try to get device name from device_info first
+        device_name = "Unknown Device"
+        if device_info and hasattr(device_info, 'name'):
+            device_name = device_info.name
+        elif raw_data and 'a2wName' in raw_data:
+            device_name = raw_data['a2wName']
+            
         return {
             "identifiers": {(DOMAIN, self._device_id)},
-            "name": device_info.name,
+            "name": device_name,
             "manufacturer": "Panasonic",
             "model": "Aquarea Heat Pump",
         }
@@ -111,22 +149,27 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             return None
             
         device = device_data["device"]
-        _LOGGER.debug("Device object: %s", device)
         
+        # Try to get temperature from structured device.status first
         if hasattr(device, 'status') and device.status:
-            _LOGGER.debug("Device status object: %s", device.status)
             if hasattr(device.status, 'zones'):
-                _LOGGER.debug("Device status zones: %s", device.status.zones)
                 for zone in device.status.zones:
-                    _LOGGER.debug("Zone %s data: %s", zone.zone_id, zone)
                     if zone.zone_id == self._zone_id:
                         temp = getattr(zone, 'temperature', None)
-                        _LOGGER.debug("Zone %s temperature: %s", self._zone_id, temp)
-                        return temp
-            else:
-                _LOGGER.debug("No zones attribute in device.status")
-        else:
-            _LOGGER.debug("No status attribute in device or status is None")
+                        if temp is not None:
+                            return temp
+        
+        # Try to get temperature from raw data as fallback
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            for zone_status in raw_data['status']['zoneStatus']:
+                if zone_status.get('zoneId') == self._zone_id:
+                    temp_now = zone_status.get('temperatureNow')
+                    if temp_now is not None:
+                        # Convert from tenths of degrees to degrees
+                        return float(temp_now) / 10.0
+        
+        _LOGGER.debug("No temperature data found for zone %s", self._zone_id)
         return None
 
     @property
@@ -137,10 +180,28 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             return None
             
         device = device_data["device"]
+        
+        # Try to get target temperature from structured device.status first
         if hasattr(device, 'status') and device.status:
-            for zone in device.status.zones:
-                if zone.zone_id == self._zone_id:
-                    return getattr(zone, 'target_temperature', None)
+            if hasattr(device.status, 'zones'):
+                for zone in device.status.zones:
+                    if zone.zone_id == self._zone_id:
+                        target_temp = getattr(zone, 'target_temperature', None)
+                        if target_temp is not None:
+                            return target_temp
+        
+        # Try to get target temperature from raw data as fallback
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            for zone_status in raw_data['status']['zoneStatus']:
+                if zone_status.get('zoneId') == self._zone_id:
+                    # Calculate target temperature from current + offset
+                    temp_now = zone_status.get('temperatureNow')
+                    heat_set = zone_status.get('heatSet')
+                    if temp_now is not None and heat_set is not None:
+                        # Convert from tenths of degrees to degrees and add offset
+                        return (float(temp_now) + float(heat_set)) / 10.0
+        
         return None
 
     @property

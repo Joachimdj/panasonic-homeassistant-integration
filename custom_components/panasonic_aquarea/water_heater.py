@@ -34,10 +34,18 @@ async def async_setup_entry(
     
     entities = []
     for device_id, device_data in coordinator.data.items():
-        device_info = device_data["info"]
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
         
         # Only create water heater entity if device has tank
-        if device_info.has_tank:
+        has_tank = False
+        if device_info and hasattr(device_info, 'has_tank'):
+            has_tank = device_info.has_tank
+        elif raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            # If tank status exists in raw data, assume it has a tank
+            has_tank = True
+            
+        if has_tank:
             entities.append(
                 AquareaWaterHeater(coordinator, device_id)
             )
@@ -57,17 +65,37 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         super().__init__(coordinator)
         self._device_id = device_id
         
-        device_info = self.coordinator.data[device_id]["info"]
-        self._attr_name = f"{device_info.name} Water Heater"
+        device_data = self.coordinator.data.get(device_id, {})
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Get device name
+        device_name = "Unknown Device"
+        if device_info and hasattr(device_info, 'name'):
+            device_name = device_info.name
+        elif raw_data and 'a2wName' in raw_data:
+            device_name = raw_data['a2wName']
+            
+        self._attr_name = f"{device_name} Water Heater"
         self._attr_unique_id = f"{device_id}_water_heater"
 
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        device_info = self.coordinator.data[self._device_id]["info"]
+        device_data = self.coordinator.data.get(self._device_id, {})
+        device_info = device_data.get("info")
+        raw_data = device_data.get("raw_data")
+        
+        # Try to get device name from device_info first
+        device_name = "Unknown Device"
+        if device_info and hasattr(device_info, 'name'):
+            device_name = device_info.name
+        elif raw_data and 'a2wName' in raw_data:
+            device_name = raw_data['a2wName']
+            
         return {
             "identifiers": {(DOMAIN, self._device_id)},
-            "name": device_info.name,
+            "name": device_name,
             "manufacturer": "Panasonic",
             "model": "Aquarea Heat Pump",
         }
@@ -93,8 +121,21 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             return None
             
         device = device_data["device"]
+        
+        # Try to get tank temperature from structured device.status first
         if hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
-            return device.status.tank.temperature
+            temp = getattr(device.status.tank, 'temperature', None)
+            if temp is not None:
+                return temp
+        
+        # Try to get tank temperature from raw data as fallback
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            temp_now = tank_status.get('temperatureNow')
+            if temp_now is not None:
+                return float(temp_now)
+        
         return None
 
     @property
@@ -105,8 +146,21 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             return None
             
         device = device_data["device"]
+        
+        # Try to get target temperature from structured device.status first
         if hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
-            return getattr(device.status.tank, 'target_temperature', None)
+            target_temp = getattr(device.status.tank, 'target_temperature', None)
+            if target_temp is not None:
+                return target_temp
+        
+        # Try to get target temperature from raw data as fallback
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            heat_set = tank_status.get('heatSet')
+            if heat_set is not None:
+                return float(heat_set)
+        
         return None
 
     @property
