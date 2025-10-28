@@ -168,20 +168,17 @@ def _register_activity_feed(hass: HomeAssistant) -> None:
             
             # Use logbook service to create proper activity entries (thread-safe)
             try:
-                def fire_logbook_event():
-                    """Fire the logbook event in a thread-safe way."""
-                    hass.services.async_call(
-                        "logbook",
-                        "log", 
-                        {
-                            "name": "Panasonic Aquarea",
-                            "message": message,
-                            "entity_id": data.get("entity_id"),
-                        }
-                    )
-                
-                # Use call_soon_threadsafe for thread safety
-                hass.loop.call_soon_threadsafe(fire_logbook_event)
+                # Use hass.add_job for proper async handling
+                hass.add_job(
+                    hass.services.async_call,
+                    "logbook",
+                    "log", 
+                    {
+                        "name": "Panasonic Aquarea",
+                        "message": message,
+                        "entity_id": data.get("entity_id"),
+                    }
+                )
                 
             except Exception as e:
                 _LOGGER.debug("Failed to fire logbook event: %s", e)

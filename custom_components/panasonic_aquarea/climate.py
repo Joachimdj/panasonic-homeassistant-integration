@@ -156,20 +156,17 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             
             # Use logbook service to create proper activity entries
             if self.hass:
-                def fire_logbook_event():
-                    """Fire the logbook event in a thread-safe way."""
-                    self.hass.services.async_call(
-                        "logbook",
-                        "log", 
-                        {
-                            "name": name,
-                            "message": message,
-                            "entity_id": self.entity_id,
-                        }
-                    )
-                
-                # Use call_soon_threadsafe for thread safety
-                self.hass.loop.call_soon_threadsafe(fire_logbook_event)
+                # Use hass.add_job for proper async handling
+                self.hass.add_job(
+                    self.hass.services.async_call,
+                    "logbook",
+                    "log", 
+                    {
+                        "name": name,
+                        "message": message,
+                        "entity_id": self.entity_id,
+                    }
+                )
         except Exception as err:
             _LOGGER.debug("Failed to log state change: %s", err)
 

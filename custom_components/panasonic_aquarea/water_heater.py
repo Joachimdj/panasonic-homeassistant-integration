@@ -295,6 +295,15 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             _LOGGER.info("🔍 DEBUG: Temperature methods: %s", temp_methods)
             _LOGGER.info("🔍 DEBUG: Set methods: %s", set_methods)
             
+            # Check method signatures for set_temperature
+            if hasattr(device, 'set_temperature'):
+                import inspect
+                try:
+                    sig = inspect.signature(device.set_temperature)
+                    _LOGGER.info("🔍 DEBUG: set_temperature signature: %s", sig)
+                except Exception as sig_err:
+                    _LOGGER.debug("Could not get set_temperature signature: %s", sig_err)
+            
             try:
                 # Use the aioaquarea device methods as shown in the example
                 # First try to set the tank temperature (water heater specific)
@@ -308,22 +317,21 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                     api_success = True
                 # Fallback to generic temperature setting methods (water heater might need zone_id)
                 elif hasattr(device, 'set_temperature'):
-                    # Try different zone_id approaches for water heater
+                    # Try different zone_id values for water heater DHW (Domestic Hot Water)
                     zone_attempts = [
-                        None,  # No zone (DHW might be global)
-                        0,     # Zone 0 (tank/DHW zone)
-                        "dhw", # DHW zone identifier
-                        "tank" # Tank zone identifier
+                        "DHW",    # Standard DHW zone identifier (uppercase)
+                        "dhw",    # DHW zone identifier (lowercase)  
+                        "tank",   # Tank zone identifier
+                        0,        # Zone 0 (numerical DHW zone)
+                        1,        # Zone 1 (backup)
+                        "water_heater",  # Explicit water heater zone
+                        "hot_water",     # Alternative hot water zone
                     ]
                     
                     for zone_id in zone_attempts:
                         try:
-                            if zone_id is None:
-                                await device.set_temperature(temperature)
-                                _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(%s°C) with no zone", temperature)
-                            else:
-                                await device.set_temperature(zone_id, temperature)
-                                _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(zone=%s, %s°C)", zone_id, temperature)
+                            await device.set_temperature(zone_id, temperature)
+                            _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(zone=%s, %s°C)", zone_id, temperature)
                             api_success = True
                             break
                         except Exception as zone_err:
@@ -617,20 +625,17 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             
             # Use logbook service to create proper activity entries
             if self.hass:
-                def fire_logbook_event():
-                    """Fire the logbook event in a thread-safe way."""
-                    self.hass.services.async_call(
-                        "logbook",
-                        "log", 
-                        {
-                            "name": name,
-                            "message": message,
-                            "entity_id": self.entity_id,
-                        }
-                    )
-                
-                # Use call_soon_threadsafe for thread safety
-                self.hass.loop.call_soon_threadsafe(fire_logbook_event)
+                # Use hass.add_job for proper async handling
+                self.hass.add_job(
+                    self.hass.services.async_call,
+                    "logbook",
+                    "log", 
+                    {
+                        "name": name,
+                        "message": message,
+                        "entity_id": self.entity_id,
+                    }
+                )
                 
         except Exception as err:
             _LOGGER.debug("Failed to log state change: %s", err)
