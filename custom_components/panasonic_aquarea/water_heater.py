@@ -1,6 +1,7 @@
 """Platform for water heater integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -225,26 +226,65 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
         _LOGGER.info("Setting water heater target temperature to %s°C for device %s", temperature, self._device_id)
 
-        # Update the simulated data directly since we don't have real API access yet
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-            # Update the target temperature in our simulated data
-            raw_data['status']['tankStatus']['heatSet'] = int(temperature)
-            _LOGGER.info("Updated simulated tank target temperature to %s°C", temperature)
+        device = device_data.get("device")
+        
+        # Try to use real API methods first
+        success = False
+        if device:
+            # Try various possible method names for setting tank temperature
+            possible_methods = [
+                'set_tank_temperature',
+                'set_target_temperature', 
+                'set_dhw_temperature',
+                'set_water_temperature',
+                'tank_set_temperature',
+                'dhw_set_temperature'
+            ]
             
-            # Trigger a coordinator update to refresh all entities
+            for method_name in possible_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        await method(temperature)
+                        _LOGGER.info("Successfully set temperature using %s", method_name)
+                        success = True
+                        break
+                    except Exception as err:
+                        _LOGGER.warning("Failed to set temperature using %s: %s", method_name, err)
+                        continue
+            
+            # Try tank-specific methods if device has tank object
+            if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
+                tank = device.status.tank
+                tank_methods = ['set_temperature', 'set_target_temperature', 'set_target']
+                
+                for method_name in tank_methods:
+                    if hasattr(tank, method_name):
+                        try:
+                            method = getattr(tank, method_name)
+                            await method(temperature)
+                            _LOGGER.info("Successfully set temperature using tank.%s", method_name)
+                            success = True
+                            break
+                        except Exception as err:
+                            _LOGGER.warning("Failed to set temperature using tank.%s: %s", method_name, err)
+                            continue
+        
+        if success:
+            # Wait a moment for the change to propagate
+            await asyncio.sleep(0.5)
+            # Trigger coordinator refresh to get updated data
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update tank temperature")
-
-        # TODO: When aioaquarea library supports it, replace with:
-        # device = device_data.get("device")
-        # if device and hasattr(device, 'set_tank_temperature'):
-        #     try:
-        #         await device.set_tank_temperature(temperature)
-        #         await self.coordinator.async_request_refresh()
-        #     except Exception as err:
-        #         _LOGGER.error("Failed to set water heater temperature: %s", err)
+            # Fallback: Update local data structure for immediate feedback
+            _LOGGER.info("No API method available, updating local data for immediate feedback")
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+                raw_data['status']['tankStatus']['heatSet'] = int(temperature)
+                # Trigger a coordinator update to refresh all entities
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.warning("No raw data available to update tank temperature")
 
     async def async_turn_on(self) -> None:
         """Turn the water heater on."""
@@ -254,26 +294,66 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
         _LOGGER.info("Turning on water heater for device %s", self._device_id)
 
-        # Update the simulated data directly since we don't have real API access yet
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-            # Turn on the tank operation in our simulated data
-            raw_data['status']['tankStatus']['operationStatus'] = 1
-            _LOGGER.info("Updated simulated tank operation status to ON")
+        device = device_data.get("device")
+        
+        # Try to use real API methods first
+        success = False
+        if device:
+            # Try various possible method names for turning on tank
+            possible_methods = [
+                'set_tank_operation',
+                'set_tank_enabled',
+                'enable_tank',
+                'turn_on_tank',
+                'tank_on',
+                'set_dhw_operation',
+                'enable_dhw'
+            ]
             
-            # Trigger a coordinator update to refresh all entities
+            for method_name in possible_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        await method(True)
+                        _LOGGER.info("Successfully turned on water heater using %s", method_name)
+                        success = True
+                        break
+                    except Exception as err:
+                        _LOGGER.warning("Failed to turn on water heater using %s: %s", method_name, err)
+                        continue
+            
+            # Try tank-specific methods if device has tank object
+            if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
+                tank = device.status.tank
+                tank_methods = ['turn_on', 'enable', 'set_enabled', 'set_operation']
+                
+                for method_name in tank_methods:
+                    if hasattr(tank, method_name):
+                        try:
+                            method = getattr(tank, method_name)
+                            await method(True)
+                            _LOGGER.info("Successfully turned on water heater using tank.%s", method_name)
+                            success = True
+                            break
+                        except Exception as err:
+                            _LOGGER.warning("Failed to turn on water heater using tank.%s: %s", method_name, err)
+                            continue
+        
+        if success:
+            # Wait a moment for the change to propagate
+            await asyncio.sleep(0.5)
+            # Trigger coordinator refresh to get updated data
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update tank operation status")
-
-        # TODO: When aioaquarea library supports it, replace with:
-        # device = device_data.get("device")
-        # if device and hasattr(device, 'set_tank_operation'):
-        #     try:
-        #         await device.set_tank_operation(True)
-        #         await self.coordinator.async_request_refresh()
-        #     except Exception as err:
-        #         _LOGGER.error("Failed to turn on water heater: %s", err)
+            # Fallback: Update local data structure for immediate feedback
+            _LOGGER.info("No API method available, updating local data for immediate feedback")
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+                raw_data['status']['tankStatus']['operationStatus'] = 1
+                # Trigger a coordinator update to refresh all entities
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.warning("No raw data available to update tank operation status")
 
     async def async_turn_off(self) -> None:
         """Turn the water heater off."""
@@ -283,26 +363,66 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
         _LOGGER.info("Turning off water heater for device %s", self._device_id)
 
-        # Update the simulated data directly since we don't have real API access yet
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-            # Turn off the tank operation in our simulated data
-            raw_data['status']['tankStatus']['operationStatus'] = 0
-            _LOGGER.info("Updated simulated tank operation status to OFF")
+        device = device_data.get("device")
+        
+        # Try to use real API methods first
+        success = False
+        if device:
+            # Try various possible method names for turning off tank
+            possible_methods = [
+                'set_tank_operation',
+                'set_tank_enabled',
+                'disable_tank',
+                'turn_off_tank',
+                'tank_off',
+                'set_dhw_operation',
+                'disable_dhw'
+            ]
             
-            # Trigger a coordinator update to refresh all entities
+            for method_name in possible_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        await method(False)
+                        _LOGGER.info("Successfully turned off water heater using %s", method_name)
+                        success = True
+                        break
+                    except Exception as err:
+                        _LOGGER.warning("Failed to turn off water heater using %s: %s", method_name, err)
+                        continue
+            
+            # Try tank-specific methods if device has tank object
+            if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
+                tank = device.status.tank
+                tank_methods = ['turn_off', 'disable', 'set_enabled', 'set_operation']
+                
+                for method_name in tank_methods:
+                    if hasattr(tank, method_name):
+                        try:
+                            method = getattr(tank, method_name)
+                            await method(False)
+                            _LOGGER.info("Successfully turned off water heater using tank.%s", method_name)
+                            success = True
+                            break
+                        except Exception as err:
+                            _LOGGER.warning("Failed to turn off water heater using tank.%s: %s", method_name, err)
+                            continue
+        
+        if success:
+            # Wait a moment for the change to propagate
+            await asyncio.sleep(0.5)
+            # Trigger coordinator refresh to get updated data
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update tank operation status")
-
-        # TODO: When aioaquarea library supports it, replace with:
-        # device = device_data.get("device")
-        # if device and hasattr(device, 'set_tank_operation'):
-        #     try:
-        #         await device.set_tank_operation(False)
-        #         await self.coordinator.async_request_refresh()
-        #     except Exception as err:
-        #         _LOGGER.error("Failed to turn off water heater: %s", err)
+            # Fallback: Update local data structure for immediate feedback
+            _LOGGER.info("No API method available, updating local data for immediate feedback")
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+                raw_data['status']['tankStatus']['operationStatus'] = 0
+                # Trigger a coordinator update to refresh all entities
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.warning("No raw data available to update tank operation status")
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         """Set operation mode."""

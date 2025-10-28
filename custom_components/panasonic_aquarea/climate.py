@@ -1,6 +1,7 @@
 """Platform for climate integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -386,38 +387,91 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
 
         _LOGGER.info("Setting climate target temperature to %s°C for device %s, zone %s", temperature, self._device_id, self._zone_id)
 
-        # Update the simulated data directly since we don't have real API access yet
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
-            # Find the zone and update its target temperature
-            for zone_status in raw_data['status']['zoneStatus']:
-                if zone_status.get('zoneId') == self._zone_id:
-                    # Calculate the heat offset needed to reach target temperature
-                    current_temp = zone_status.get('temperatureNow', 200)  # Default 20.0°C in tenths
-                    target_temp_tenths = int(temperature * 10)  # Convert to tenths
-                    heat_offset = target_temp_tenths - current_temp
+        device = device_data.get("device")
+        
+        # Try to use real API methods first
+        success = False
+        if device:
+            # Try various possible method names for setting zone temperature
+            possible_methods = [
+                'set_zone_temperature',
+                'set_temperature',
+                'set_target_temperature',
+                'set_heating_temperature',
+                'update_temperature',
+                'set_temp'
+            ]
+            
+            for method_name in possible_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        # Try with zone_id parameter first, then without
+                        try:
+                            await method(self._zone_id, temperature)
+                            _LOGGER.info("Successfully set climate temperature using %s with zone_id", method_name)
+                            success = True
+                            break
+                        except TypeError:
+                            # Method may not accept zone_id parameter
+                            await method(temperature)
+                            _LOGGER.info("Successfully set climate temperature using %s without zone_id", method_name)
+                            success = True
+                            break
+                    except Exception as err:
+                        _LOGGER.warning("Failed to set climate temperature using %s: %s", method_name, err)
+                        continue
+            
+            # Try zone-specific methods if device has zones
+            if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'zones'):
+                zones = device.status.zones
+                if zones and len(zones) > self._zone_id - 1:
+                    # Try to set temperature on specific zone
+                    zone = zones[self._zone_id - 1]  # Zone IDs are typically 1-based
+                    zone_methods = ['set_temperature', 'set_target_temp', 'update_temperature', 'set_target']
                     
-                    # Update the heat set (offset from current temperature)
-                    zone_status['heatSet'] = heat_offset
-                    _LOGGER.info("Updated zone %s heat offset to %s (target: %s°C, current: %s°C)", 
-                                self._zone_id, heat_offset, temperature, current_temp/10.0)
-                    
-                    # Trigger a coordinator update to refresh all entities
-                    await self.coordinator.async_request_refresh()
-                    return
-                    
-            _LOGGER.warning("Zone %s not found in raw data", self._zone_id)
+                    for method_name in zone_methods:
+                        if hasattr(zone, method_name):
+                            try:
+                                method = getattr(zone, method_name)
+                                await method(temperature)
+                                _LOGGER.info("Successfully set climate temperature using zone.%s", method_name)
+                                success = True
+                                break
+                            except Exception as err:
+                                _LOGGER.warning("Failed to set climate temperature using zone.%s: %s", method_name, err)
+                                continue
+        
+        if success:
+            # Wait a moment for the change to propagate
+            await asyncio.sleep(0.5)
+            # Trigger coordinator refresh to get updated data
+            await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update zone temperature")
-
-        # TODO: When aioaquarea library supports it, replace with:
-        # device = device_data.get("device")
-        # if device and hasattr(device, 'set_zone_temperature'):
-        #     try:
-        #         await device.set_zone_temperature(self._zone_id, temperature)
-        #         await self.coordinator.async_request_refresh()
-        #     except Exception as err:
-        #         _LOGGER.error("Failed to set temperature: %s", err)
+            # Fallback: Update local data structure for immediate feedback
+            _LOGGER.info("No API method available, updating local data for immediate feedback")
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+                # Find the zone and update its target temperature
+                for zone_status in raw_data['status']['zoneStatus']:
+                    if zone_status.get('zoneId') == self._zone_id:
+                        # Calculate the heat offset needed to reach target temperature
+                        current_temp = zone_status.get('temperatureNow', 200)  # Default 20.0°C in tenths
+                        target_temp_tenths = int(temperature * 10)  # Convert to tenths
+                        heat_offset = target_temp_tenths - current_temp
+                        
+                        # Update the heat set (offset from current temperature)
+                        zone_status['heatSet'] = heat_offset
+                        _LOGGER.info("Updated zone %s heat offset to %s (target: %s°C, current: %s°C)", 
+                                    self._zone_id, heat_offset, temperature, current_temp/10.0)
+                        
+                        # Trigger a coordinator update to refresh all entities
+                        await self.coordinator.async_request_refresh()
+                        return
+                        
+                _LOGGER.warning("Zone %s not found in raw data", self._zone_id)
+            else:
+                _LOGGER.warning("No raw data available to update zone temperature")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""

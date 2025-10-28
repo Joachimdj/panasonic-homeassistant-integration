@@ -1,6 +1,7 @@
 """Platform for switch integration - Cloud Comfort app controls."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -143,16 +144,48 @@ class AquareaEcoModeSwitch(AquareaSwitchBase):
 
         _LOGGER.info("Turning on eco mode for device %s", self._device_id)
 
-        # Update the simulated data directly since we don't have real API access yet
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            raw_data['status']['ecoMode'] = 1
-            _LOGGER.info("Updated simulated eco mode to ON")
+        device = device_data.get("device")
+        
+        # Try to use real API methods first
+        success = False
+        if device:
+            # Try various possible method names for eco mode
+            possible_methods = [
+                'set_eco_mode',
+                'enable_eco_mode',
+                'set_eco',
+                'eco_on',
+                'enable_eco'
+            ]
             
-            # Trigger a coordinator update to refresh all entities
+            for method_name in possible_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        await method(True)
+                        _LOGGER.info("Successfully turned on eco mode using %s", method_name)
+                        success = True
+                        break
+                    except Exception as err:
+                        _LOGGER.warning("Failed to turn on eco mode using %s: %s", method_name, err)
+                        break
+        
+        if success:
+            # Wait a moment for the change to propagate
+            await asyncio.sleep(0.5)
+            # Trigger coordinator refresh to get updated data
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update eco mode")
+            # Fallback: Update local data structure for immediate feedback
+            _LOGGER.info("No API method available, updating local data for immediate feedback")
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data:
+                raw_data['status']['ecoMode'] = 1
+                _LOGGER.info("Updated simulated eco mode to ON")
+                # Trigger a coordinator update to refresh all entities
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.warning("No raw data available to update eco mode")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
@@ -162,16 +195,48 @@ class AquareaEcoModeSwitch(AquareaSwitchBase):
 
         _LOGGER.info("Turning off eco mode for device %s", self._device_id)
 
-        # Update the simulated data directly since we don't have real API access yet
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            raw_data['status']['ecoMode'] = 0
-            _LOGGER.info("Updated simulated eco mode to OFF")
+        device = device_data.get("device")
+        
+        # Try to use real API methods first
+        success = False
+        if device:
+            # Try various possible method names for eco mode
+            possible_methods = [
+                'set_eco_mode',
+                'disable_eco_mode',
+                'set_eco',
+                'eco_off',
+                'disable_eco'
+            ]
             
-            # Trigger a coordinator update to refresh all entities
+            for method_name in possible_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        await method(False)
+                        _LOGGER.info("Successfully turned off eco mode using %s", method_name)
+                        success = True
+                        break
+                    except Exception as err:
+                        _LOGGER.warning("Failed to turn off eco mode using %s: %s", method_name, err)
+                        continue
+        
+        if success:
+            # Wait a moment for the change to propagate
+            await asyncio.sleep(0.5)
+            # Trigger coordinator refresh to get updated data
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update eco mode")
+            # Fallback: Update local data structure for immediate feedback
+            _LOGGER.info("No API method available, updating local data for immediate feedback")
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data:
+                raw_data['status']['ecoMode'] = 0
+                _LOGGER.info("Updated simulated eco mode to OFF")
+                # Trigger a coordinator update to refresh all entities
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.warning("No raw data available to update eco mode")
 
 
 class AquareaComfortModeSwitch(AquareaSwitchBase):
