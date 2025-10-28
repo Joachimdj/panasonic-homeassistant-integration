@@ -1,0 +1,17 @@
+{
+    "domain": "panasonic_aquarea",
+    "name": "Panasonic Aquarea",
+    "codeowners": [
+        "@joachimdittman"
+    ],
+    "config_flow": true,
+    "dependencies": [],
+    "documentation": "https://github.com/cjaliaga/aioaquarea",
+    "integration_type": "hub",
+    "iot_class": "cloud_polling",
+    "issue_tracker": "https://github.com/cjaliaga/aioaquarea/issues",
+    "requirements": [
+        "aioaquarea>=1.0.0"
+    ],
+    "version": "1.0.0"
+}
