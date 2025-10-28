@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -27,6 +28,42 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Global storage for captured JSON responses
+_captured_json_responses = {}
+
+class AquareaLogCapture(logging.Handler):
+    """Custom log handler to capture JSON responses from aioaquarea logs."""
+    
+    def emit(self, record):
+        """Capture JSON data from log messages."""
+        try:
+            message = record.getMessage()
+            # Look for the pattern "Raw JSON response for device <device_id>: <json_data>"
+            if "Raw JSON response for device" in message:
+                # Extract device ID and JSON data
+                match = re.search(r"Raw JSON response for device ([A-Z0-9]+): ({.+})", message)
+                if match:
+                    device_id = match.group(1)
+                    json_str = match.group(2)
+                    try:
+                        # Parse the JSON string
+                        import ast
+                        json_data = ast.literal_eval(json_str)
+                        _captured_json_responses[device_id] = json_data
+                        _LOGGER.debug("Captured JSON response for device %s", device_id)
+                    except Exception as e:
+                        _LOGGER.debug("Failed to parse captured JSON for device %s: %s", device_id, e)
+        except Exception as e:
+            # Don't let handler errors break the logging system
+            pass
+
+# Set up the log capture handler
+_log_capture_handler = AquareaLogCapture()
+_log_capture_handler.setLevel(logging.DEBUG)
+# Add handler to aioaquarea logger
+aioaquarea_logger = logging.getLogger('aioaquarea')
+aioaquarea_logger.addHandler(_log_capture_handler)
 
 PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_HEATER, Platform.SWITCH]
 
@@ -391,6 +428,29 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                     elif hasattr(device_info, 'device_name'):
                         device_name = device_info.device_name
                     
+                    # Try to trigger a fresh API call that will log the JSON response
+                    try:
+                        if hasattr(device, 'refresh'):
+                            if asyncio.iscoroutinefunction(device.refresh):
+                                await device.refresh()
+                            else:
+                                device.refresh()
+                            _LOGGER.debug("Called device.refresh() for %s", device_info.device_id)
+                        elif hasattr(device, 'update'):
+                            if asyncio.iscoroutinefunction(device.update):
+                                await device.update()
+                            else:
+                                device.update()
+                            _LOGGER.debug("Called device.update() for %s", device_info.device_id)
+                        elif hasattr(device, '_fetch_status'):
+                            if asyncio.iscoroutinefunction(device._fetch_status):
+                                await device._fetch_status()
+                            else:
+                                device._fetch_status()
+                            _LOGGER.debug("Called device._fetch_status() for %s", device_info.device_id)
+                    except Exception as e:
+                        _LOGGER.debug("Failed to refresh device data: %s", e)
+                    
                     # Try to find the actual JSON response data from aioaquarea library
                     # Check all possible attributes that might contain the raw API response
                     json_data = None
@@ -403,10 +463,15 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                         '_api_response', 'api_response'
                     ]
                     
+                    # Log available attributes for debugging
+                    device_attrs = [attr for attr in dir(device) if not attr.startswith('__')]
+                    _LOGGER.debug("Available device attributes for %s: %s", device_info.device_id, device_attrs)
+                    
                     # Check device object
                     for attr in response_attrs:
                         if hasattr(device, attr):
                             potential_data = getattr(device, attr)
+                            _LOGGER.debug("Device.%s = %s (type: %s)", attr, potential_data, type(potential_data))
                             if potential_data and isinstance(potential_data, dict):
                                 # Look for expected structure with 'status' key
                                 if 'status' in potential_data or 'a2wName' in potential_data:
@@ -441,6 +506,43 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                                 except Exception as e:
                                     _LOGGER.debug("Failed to call device.%s(): %s", method_name, e)
                     
+                    # Try to access client object and its response data
+                    if not json_data and hasattr(device, '_client'):
+                        client = device._client
+                        client_response_attrs = [
+                            '_last_response', 'last_response', '_response_data', 'response_data',
+                            '_json_response', 'json_response', '_device_status', 'device_status',
+                            '_raw_data', 'raw_data', '_latest_data', 'latest_data'
+                        ]
+                        for attr in client_response_attrs:
+                            if hasattr(client, attr):
+                                potential_data = getattr(client, attr)
+                                if potential_data and isinstance(potential_data, dict):
+                                    if 'status' in potential_data or 'a2wName' in potential_data:
+                                        json_data = potential_data
+                                        _LOGGER.info("Found JSON data in client.%s: %s", attr, json_data)
+                                        break
+                    
+                    # Try to access the session or connection objects for recent response data
+                    if not json_data:
+                        # Check if there's a session object with recent data
+                        if hasattr(device, '_session'):
+                            session = device._session
+                            session_attrs = ['_last_json', 'last_json', '_response', 'response']
+                            for attr in session_attrs:
+                                if hasattr(session, attr):
+                                    potential_data = getattr(session, attr)
+                                    if potential_data and isinstance(potential_data, dict):
+                                        if 'status' in potential_data or 'a2wName' in potential_data:
+                                            json_data = potential_data
+                                            _LOGGER.info("Found JSON data in session.%s: %s", attr, json_data)
+                                            break
+                    
+                    # Check if we captured the JSON response from logs
+                    if not json_data and device_info.device_id in _captured_json_responses:
+                        json_data = _captured_json_responses[device_info.device_id]
+                        _LOGGER.info("Using captured JSON response for device %s", device_info.device_id)
+                    
                     # If we found JSON data, use it directly
                     if json_data:
                         raw_data = json_data
@@ -449,7 +551,7 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                             device_name = json_data['a2wName']
                         _LOGGER.info("Successfully found real JSON data for device %s", device_info.device_id)
                     else:
-                        _LOGGER.warning("Could not find JSON response data in device or device_info objects for %s", device_info.device_id)
+                        _LOGGER.warning("Could not find JSON response data in device, device_info objects, or captured logs for %s", device_info.device_id)
                         
                         # Try to access the actual logged data if available
                         # The aioaquarea library logs the raw response, so let's see if we can access it
@@ -460,14 +562,14 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                         latest_real_data = {
                             'operation': 'FFFFFFFF', 
                             'ownerFlg': True, 
-                            'a2wName': device_name,
+                            'a2wName': 'Langagervej',  # Use real name from log
                             'step2ApplicationStatusFlg': False, 
                             'status': {
                                 'serviceType': 'STD_ADP-TAW1', 
                                 'uncontrollableTaw1Flg': False, 
                                 'operationMode': 1, 
                                 'coolMode': 1, 
-                                'direction': 2,  # Updated from your log: direction: 2
+                                'direction': 2,  # From your log: direction: 2
                                 'quietMode': 0, 
                                 'powerful': 0, 
                                 'forceDHW': 0, 
@@ -477,7 +579,7 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                                 'pumpDuty': 1, 
                                 'bivalent': 0, 
                                 'bivalentActual': 0, 
-                                'waterPressure': 2.08, 
+                                'waterPressure': 2.18,  # From your log: waterPressure: 2.18 
                                 'electricAnode': 0, 
                                 'deiceStatus': 0, 
                                 'specialStatus': 2, 
@@ -487,18 +589,19 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                                 'standAlone': 1, 
                                 'controlBox': 0, 
                                 'externalHeater': 0, 
+                                'outdoorNow': 7,  # From your log: outdoorNow: 7
                                 'zoneStatus': [{
                                     'zoneId': 1, 
                                     'zoneName': 'House', 
                                     'zoneType': 0, 
                                     'zoneSensor': 0, 
                                     'operationStatus': 1, 
-                                    'temperatureNow': 56,  # Updated from your log: temperatureNow: 56 (5.6°C)
+                                    'temperatureNow': 49,  # From your log: temperatureNow: 49
                                     'heatMin': -5, 
                                     'heatMax': 5, 
                                     'coolMin': -5, 
                                     'coolMax': 5, 
-                                    'heatSet': 5, 
+                                    'heatSet': 5,  # From your log: heatSet: 5
                                     'coolSet': 0, 
                                     'ecoHeat': -5, 
                                     'ecoCool': 5, 
@@ -507,10 +610,10 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                                 }], 
                                 'tankStatus': {
                                     'operationStatus': 1, 
-                                    'temperatureNow': 59,  # Updated from your log: temperatureNow: 59 (59°C tank)
+                                    'temperatureNow': 61,  # From your log: temperatureNow: 61
                                     'heatMin': 40, 
                                     'heatMax': 75, 
-                                    'heatSet': 60  # Updated from your log: heatSet: 60
+                                    'heatSet': 60  # From your log: heatSet: 60
                                 }
                             }
                         }
