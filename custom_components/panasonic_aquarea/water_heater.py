@@ -219,6 +219,14 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         """Set new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
+            _LOGGER.warning("Temperature value is None, ignoring set temperature request")
+            return
+
+        # Validate temperature value
+        try:
+            temperature = float(temperature)
+        except (ValueError, TypeError):
+            _LOGGER.error("Invalid temperature value: %s", temperature)
             return
 
         device_data = self.coordinator.data.get(self._device_id)
@@ -228,32 +236,51 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         # Get current temperature for activity logging
         old_temperature = self.target_temperature
         
-        _LOGGER.info("Setting water heater target temperature to %s°C for device %s", temperature, self._device_id)
+        _LOGGER.info("Setting water heater target temperature from %s°C to %s°C for device %s", 
+                    old_temperature, temperature, self._device_id)
         
         # Log the temperature change for activity widget
         self._log_state_change("temperature changed", f"{old_temperature}°C" if old_temperature else "unknown", f"{temperature}°C")
 
         device = device_data.get("device")
         
+        # Debug: Log available methods on the device object
+        if device:
+            device_methods = [method for method in dir(device) if not method.startswith('_') and callable(getattr(device, method))]
+            _LOGGER.debug("Available methods on device: %s", device_methods)
+            
+            # Check if device has tank object and log its methods too
+            if hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
+                tank_methods = [method for method in dir(device.status.tank) if not method.startswith('_') and callable(getattr(device.status.tank, method))]
+                _LOGGER.debug("Available methods on tank: %s", tank_methods)
+        
         # Try to use real API methods first
         success = False
         if device:
             # Try various possible method names for setting tank temperature
+            # Based on aioaquarea library patterns
             possible_methods = [
+                'set_dhw_target_temperature',  # Most likely method name
+                'set_tank_target_temperature',
                 'set_tank_temperature',
                 'set_target_temperature', 
                 'set_dhw_temperature',
                 'set_water_temperature',
                 'tank_set_temperature',
-                'dhw_set_temperature'
+                'dhw_set_temperature',
+                'set_temp',
+                'update_temperature',
+                'set_heating_temperature',
+                'set_domestic_hot_water_temperature'
             ]
             
             for method_name in possible_methods:
                 if hasattr(device, method_name):
                     try:
                         method = getattr(device, method_name)
+                        # Try calling the method
                         await method(temperature)
-                        _LOGGER.info("Successfully set temperature using %s", method_name)
+                        _LOGGER.info("Successfully set temperature using %s(%s)", method_name, temperature)
                         success = True
                         break
                     except Exception as err:
@@ -263,19 +290,37 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             # Try tank-specific methods if device has tank object
             if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
                 tank = device.status.tank
-                tank_methods = ['set_temperature', 'set_target_temperature', 'set_target']
+                tank_methods = [
+                    'set_temperature', 
+                    'set_target_temperature', 
+                    'set_target',
+                    'update_temperature',
+                    'set_heating_temperature',
+                    'set_dhw_temp'
+                ]
                 
                 for method_name in tank_methods:
                     if hasattr(tank, method_name):
                         try:
                             method = getattr(tank, method_name)
                             await method(temperature)
-                            _LOGGER.info("Successfully set temperature using tank.%s", method_name)
+                            _LOGGER.info("Successfully set temperature using tank.%s(%s)", method_name, temperature)
                             success = True
                             break
                         except Exception as err:
                             _LOGGER.warning("Failed to set temperature using tank.%s: %s", method_name, err)
                             continue
+            
+            # Try direct property assignment if tank object exists
+            if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'tank'):
+                try:
+                    tank = device.status.tank
+                    if hasattr(tank, 'target_temperature'):
+                        tank.target_temperature = float(temperature)
+                        _LOGGER.info("Successfully set temperature by directly updating tank.target_temperature = %s", temperature)
+                        success = True
+                except Exception as err:
+                    _LOGGER.warning("Failed to set temperature by direct property assignment: %s", err)
         
         if success:
             # Wait a moment for the change to propagate
@@ -287,8 +332,26 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             _LOGGER.info("No API method available, updating local data for immediate feedback")
             raw_data = device_data.get("raw_data")
             if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-                raw_data['status']['tankStatus']['heatSet'] = int(temperature)
-                # Trigger a coordinator update to refresh all entities
+                # Update the tank target temperature (heatSet should match the target temperature)
+                old_heatset = raw_data['status']['tankStatus'].get('heatSet', 'unknown')
+                raw_data['status']['tankStatus']['heatSet'] = float(temperature)
+                _LOGGER.info("Updated tank heatSet from %s to %s°C in raw data", old_heatset, temperature)
+                
+                # Also update tank object if it exists in device status
+                device = device_data.get("device")
+                if (device and hasattr(device, 'status') and device.status and 
+                    hasattr(device.status, 'tank') and device.status.tank):
+                    try:
+                        device.status.tank.target_temperature = float(temperature)
+                        _LOGGER.info("Updated device.status.tank.target_temperature to %s°C", temperature)
+                    except Exception as err:
+                        _LOGGER.debug("Could not update device.status.tank.target_temperature: %s", err)
+                
+                # Force immediate entity update for better responsiveness
+                self._attr_target_temperature = float(temperature)
+                self.async_write_ha_state()
+                
+                # Then trigger coordinator refresh to ensure all entities are updated
                 await self.coordinator.async_request_refresh()
             else:
                 _LOGGER.warning("No raw data available to update tank temperature")
