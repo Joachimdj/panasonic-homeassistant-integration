@@ -107,13 +107,26 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
         """Return the current temperature."""
         device_data = self.coordinator.data.get(self._device_id)
         if not device_data or not device_data.get("device"):
+            _LOGGER.debug("No device data for %s", self._device_id)
             return None
             
         device = device_data["device"]
+        _LOGGER.debug("Device object: %s", device)
+        
         if hasattr(device, 'status') and device.status:
-            for zone in device.status.zones:
-                if zone.zone_id == self._zone_id:
-                    return zone.temperature
+            _LOGGER.debug("Device status object: %s", device.status)
+            if hasattr(device.status, 'zones'):
+                _LOGGER.debug("Device status zones: %s", device.status.zones)
+                for zone in device.status.zones:
+                    _LOGGER.debug("Zone %s data: %s", zone.zone_id, zone)
+                    if zone.zone_id == self._zone_id:
+                        temp = getattr(zone, 'temperature', None)
+                        _LOGGER.debug("Zone %s temperature: %s", self._zone_id, temp)
+                        return temp
+            else:
+                _LOGGER.debug("No zones attribute in device.status")
+        else:
+            _LOGGER.debug("No status attribute in device or status is None")
         return None
 
     @property

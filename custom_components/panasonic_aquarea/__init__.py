@@ -75,6 +75,17 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                 try:
                     device = await self.client.get_device(device_info=device_info)
                     await device.refresh_data()
+                    
+                    # Debug logging to understand data structure
+                    _LOGGER.info("Device info attributes: %s", dir(device_info))
+                    _LOGGER.info("Device attributes: %s", dir(device))
+                    _LOGGER.info("Device info dict: %s", vars(device_info) if hasattr(device_info, '__dict__') else "No __dict__")
+                    _LOGGER.info("Device dict: %s", vars(device) if hasattr(device, '__dict__') else "No __dict__")
+                    
+                    if hasattr(device, 'status') and device.status:
+                        _LOGGER.info("Device status attributes: %s", dir(device.status))
+                        _LOGGER.info("Device status dict: %s", vars(device.status) if hasattr(device.status, '__dict__') else "No __dict__")
+                    
                     devices_data[device_info.device_id] = {
                         "info": device_info,
                         "device": device,
