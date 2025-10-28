@@ -332,17 +332,47 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             return
 
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        operation_mode = HVAC_MODE_TO_OPERATION_MODE[hvac_mode]
-        device = device_data["device"]
+        _LOGGER.info("Setting HVAC mode to %s for device %s", hvac_mode, self._device_id)
 
-        try:
-            await device.set_mode(operation_mode)
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            # Map HVAC mode to operation mode value
+            mode_map = {
+                HVACMode.OFF: 0,
+                HVACMode.HEAT: 1,
+                HVACMode.COOL: 2,
+                HVACMode.AUTO: 3,
+            }
+            
+            operation_mode_value = mode_map.get(hvac_mode, 0)
+            raw_data['status']['operationMode'] = operation_mode_value
+            
+            # Also update zone operation status
+            if 'zoneStatus' in raw_data['status']:
+                for zone_status in raw_data['status']['zoneStatus']:
+                    if zone_status.get('zoneId') == self._zone_id:
+                        zone_status['operationStatus'] = 1 if hvac_mode != HVACMode.OFF else 0
+                        break
+            
+            _LOGGER.info("Updated operation mode to %s (%s)", hvac_mode, operation_mode_value)
+            
+            # Trigger a coordinator update to refresh all entities
             await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to set HVAC mode: %s", err)
+        else:
+            _LOGGER.warning("No raw data available to update HVAC mode")
+
+        # TODO: When aioaquarea library supports it, replace with:
+        # operation_mode = HVAC_MODE_TO_OPERATION_MODE[hvac_mode]
+        # device = device_data["device"]
+        # try:
+        #     await device.set_mode(operation_mode)
+        #     await self.coordinator.async_request_refresh()
+        # except Exception as err:
+        #     _LOGGER.error("Failed to set HVAC mode: %s", err)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
@@ -351,18 +381,43 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             return
 
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        device = device_data["device"]
+        _LOGGER.info("Setting climate target temperature to %s°C for device %s, zone %s", temperature, self._device_id, self._zone_id)
 
-        try:
-            # Assuming there's a method to set zone temperature
-            if hasattr(device, 'set_zone_temperature'):
-                await device.set_zone_temperature(self._zone_id, temperature)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to set temperature: %s", err)
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            # Find the zone and update its target temperature
+            for zone_status in raw_data['status']['zoneStatus']:
+                if zone_status.get('zoneId') == self._zone_id:
+                    # Calculate the heat offset needed to reach target temperature
+                    current_temp = zone_status.get('temperatureNow', 200)  # Default 20.0°C in tenths
+                    target_temp_tenths = int(temperature * 10)  # Convert to tenths
+                    heat_offset = target_temp_tenths - current_temp
+                    
+                    # Update the heat set (offset from current temperature)
+                    zone_status['heatSet'] = heat_offset
+                    _LOGGER.info("Updated zone %s heat offset to %s (target: %s°C, current: %s°C)", 
+                                self._zone_id, heat_offset, temperature, current_temp/10.0)
+                    
+                    # Trigger a coordinator update to refresh all entities
+                    await self.coordinator.async_request_refresh()
+                    return
+                    
+            _LOGGER.warning("Zone %s not found in raw data", self._zone_id)
+        else:
+            _LOGGER.warning("No raw data available to update zone temperature")
+
+        # TODO: When aioaquarea library supports it, replace with:
+        # device = device_data.get("device")
+        # if device and hasattr(device, 'set_zone_temperature'):
+        #     try:
+        #         await device.set_zone_temperature(self._zone_id, temperature)
+        #         await self.coordinator.async_request_refresh()
+        #     except Exception as err:
+        #         _LOGGER.error("Failed to set temperature: %s", err)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""

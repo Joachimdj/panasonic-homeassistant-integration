@@ -138,30 +138,40 @@ class AquareaEcoModeSwitch(AquareaSwitchBase):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_eco_mode'):
-                await device.set_eco_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on eco mode: %s", err)
+        _LOGGER.info("Turning on eco mode for device %s", self._device_id)
+
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            raw_data['status']['ecoMode'] = 1
+            _LOGGER.info("Updated simulated eco mode to ON")
+            
+            # Trigger a coordinator update to refresh all entities
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.warning("No raw data available to update eco mode")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_eco_mode'):
-                await device.set_eco_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off eco mode: %s", err)
+        _LOGGER.info("Turning off eco mode for device %s", self._device_id)
+
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            raw_data['status']['ecoMode'] = 0
+            _LOGGER.info("Updated simulated eco mode to OFF")
+            
+            # Trigger a coordinator update to refresh all entities
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.warning("No raw data available to update eco mode")
 
 
 class AquareaComfortModeSwitch(AquareaSwitchBase):

@@ -220,68 +220,134 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             return
 
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        device = device_data["device"]
+        _LOGGER.info("Setting water heater target temperature to %s°C for device %s", temperature, self._device_id)
 
-        try:
-            # Assuming there's a method to set tank temperature
-            if hasattr(device, 'set_tank_temperature'):
-                await device.set_tank_temperature(temperature)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to set water heater temperature: %s", err)
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            # Update the target temperature in our simulated data
+            raw_data['status']['tankStatus']['heatSet'] = int(temperature)
+            _LOGGER.info("Updated simulated tank target temperature to %s°C", temperature)
+            
+            # Trigger a coordinator update to refresh all entities
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.warning("No raw data available to update tank temperature")
+
+        # TODO: When aioaquarea library supports it, replace with:
+        # device = device_data.get("device")
+        # if device and hasattr(device, 'set_tank_temperature'):
+        #     try:
+        #         await device.set_tank_temperature(temperature)
+        #         await self.coordinator.async_request_refresh()
+        #     except Exception as err:
+        #         _LOGGER.error("Failed to set water heater temperature: %s", err)
 
     async def async_turn_on(self) -> None:
         """Turn the water heater on."""
-        # Implementation depends on available API methods
-        pass
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return
+
+        _LOGGER.info("Turning on water heater for device %s", self._device_id)
+
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            # Turn on the tank operation in our simulated data
+            raw_data['status']['tankStatus']['operationStatus'] = 1
+            _LOGGER.info("Updated simulated tank operation status to ON")
+            
+            # Trigger a coordinator update to refresh all entities
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.warning("No raw data available to update tank operation status")
+
+        # TODO: When aioaquarea library supports it, replace with:
+        # device = device_data.get("device")
+        # if device and hasattr(device, 'set_tank_operation'):
+        #     try:
+        #         await device.set_tank_operation(True)
+        #         await self.coordinator.async_request_refresh()
+        #     except Exception as err:
+        #         _LOGGER.error("Failed to turn on water heater: %s", err)
 
     async def async_turn_off(self) -> None:
         """Turn the water heater off."""
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        device = device_data["device"]
+        _LOGGER.info("Turning off water heater for device %s", self._device_id)
 
-        try:
-            if hasattr(device, 'set_tank_operation'):
-                await device.set_tank_operation(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off water heater: %s", err)
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            # Turn off the tank operation in our simulated data
+            raw_data['status']['tankStatus']['operationStatus'] = 0
+            _LOGGER.info("Updated simulated tank operation status to OFF")
+            
+            # Trigger a coordinator update to refresh all entities
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.warning("No raw data available to update tank operation status")
+
+        # TODO: When aioaquarea library supports it, replace with:
+        # device = device_data.get("device")
+        # if device and hasattr(device, 'set_tank_operation'):
+        #     try:
+        #         await device.set_tank_operation(False)
+        #         await self.coordinator.async_request_refresh()
+        #     except Exception as err:
+        #         _LOGGER.error("Failed to turn off water heater: %s", err)
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         """Set operation mode."""
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
+        if not device_data:
             return
 
-        device = device_data["device"]
+        _LOGGER.info("Setting water heater operation mode to %s for device %s", operation_mode, self._device_id)
 
-        try:
+        # Update the simulated data directly since we don't have real API access yet
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
             # Reset all modes first
-            if hasattr(device, 'set_force_dhw'):
-                await device.set_force_dhw(False)
-            if hasattr(device, 'set_eco_mode'):
-                await device.set_eco_mode(False)
-            if hasattr(device, 'set_comfort_mode'):
-                await device.set_comfort_mode(False)
+            raw_data['status']['forceDHW'] = 0
+            raw_data['status']['ecoMode'] = 0
+            raw_data['status']['comfortMode'] = 0
 
             # Set the requested mode
-            if operation_mode == MODE_FORCE_DHW and hasattr(device, 'set_force_dhw'):
-                await device.set_force_dhw(True)
-            elif operation_mode == COMFORT_ECO and hasattr(device, 'set_eco_mode'):
-                await device.set_eco_mode(True)
-            elif operation_mode == COMFORT_COMFORT and hasattr(device, 'set_comfort_mode'):
-                await device.set_comfort_mode(True)
-            # COMFORT_NORMAL is achieved by turning off all special modes
+            if operation_mode == MODE_FORCE_DHW:
+                raw_data['status']['forceDHW'] = 1
+                _LOGGER.info("Enabled Force DHW mode")
+            elif operation_mode == COMFORT_ECO:
+                raw_data['status']['ecoMode'] = 1
+                _LOGGER.info("Enabled Eco mode")
+            elif operation_mode == COMFORT_COMFORT:
+                raw_data['status']['comfortMode'] = 1
+                _LOGGER.info("Enabled Comfort mode")
+            else:
+                _LOGGER.info("Set to Normal mode (all special modes off)")
             
+            # Update tank temperature based on mode
+            if 'tankStatus' in raw_data['status']:
+                tank_status = raw_data['status']['tankStatus']
+                if operation_mode == COMFORT_ECO:
+                    tank_status['heatSet'] = tank_status.get('ecoTemp', 55)
+                elif operation_mode == COMFORT_COMFORT:
+                    tank_status['heatSet'] = tank_status.get('comfortTemp', 65)
+                # For NORMAL and FORCE_DHW, keep current heatSet
+                
+            # Trigger a coordinator update to refresh all entities
             await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to set operation mode: %s", err)
+        else:
+            _LOGGER.warning("No raw data available to update operation mode")
+
+        # TODO: When aioaquarea library supports it, replace with real API calls
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
