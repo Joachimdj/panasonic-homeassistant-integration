@@ -37,21 +37,28 @@ async def async_setup_entry(
         
         _LOGGER.info("Setting up sensors for device %s, raw_data available: %s", device_id, raw_data is not None)
         
-        # Zone temperature sensors - try device_info first
+        # Zone temperature sensors - prioritize raw data (most reliable)
         zones = []
-        if device_info and hasattr(device_info, 'zones'):
-            zones = device_info.zones
-            _LOGGER.info("Found zones in device_info: %s", zones)
-        # Fallback to raw data if available
-        elif raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
             _LOGGER.info("Found zones in raw_data: %s", raw_data['status']['zoneStatus'])
             for zone_status in raw_data['status']['zoneStatus']:
+                zone_id = zone_status.get('zoneId', 1)
+                zone_name = zone_status.get('zoneName', f"Zone {zone_id}")
                 zones.append({
-                    'zone_id': zone_status.get('zoneId', 1),
-                    'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
+                    'zone_id': zone_id,
+                    'name': zone_name
                 })
+        # Fallback to device_info if no raw data
+        elif device_info and hasattr(device_info, 'zones'):
+            zones = device_info.zones
+            _LOGGER.info("Found zones in device_info: %s", zones)
         else:
-            _LOGGER.warning("No zone data found for device %s", device_id)
+            _LOGGER.warning("No zone data found for device %s, creating default zone", device_id)
+            # Create a default zone
+            zones = [{
+                'zone_id': 1,
+                'name': 'House'
+            }]
         
         for zone in zones:
             zone_id = getattr(zone, 'zone_id', None) or zone.get('zone_id')

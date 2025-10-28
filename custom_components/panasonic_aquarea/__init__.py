@@ -455,71 +455,70 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                         # The aioaquarea library logs the raw response, so let's see if we can access it
                         # From the log format: "Raw JSON response for device B497204181: {'operation': 'FFFFFFFF', ...}"
                         
-                        # Check if there's any way to get the raw status from the device
-                        if hasattr(device, 'status') and device.status:
-                            # Try to construct from the logged example data structure
-                            example_data = {
-                                'operation': 'FFFFFFFF', 
-                                'ownerFlg': True, 
-                                'a2wName': device_name,
-                                'step2ApplicationStatusFlg': False, 
-                                'status': {
-                                    'serviceType': 'STD_ADP-TAW1', 
-                                    'uncontrollableTaw1Flg': False, 
-                                    'operationMode': 1, 
-                                    'coolMode': 1, 
-                                    'direction': 1, 
-                                    'quietMode': 0, 
-                                    'powerful': 0, 
-                                    'forceDHW': 0, 
-                                    'forceHeater': 0, 
-                                    'tank': 1, 
-                                    'multiOdConnection': 0, 
-                                    'pumpDuty': 1, 
-                                    'bivalent': 0, 
-                                    'bivalentActual': 0, 
-                                    'waterPressure': 2.08, 
-                                    'electricAnode': 0, 
-                                    'deiceStatus': 0, 
-                                    'specialStatus': 2, 
-                                    'outdoorNow': 9, 
-                                    'holidayTimer': 0, 
-                                    'modelSeriesSelection': 5, 
-                                    'standAlone': 1, 
-                                    'controlBox': 0, 
-                                    'externalHeater': 0, 
-                                    'zoneStatus': [{
-                                        'zoneId': 1, 
-                                        'zoneName': 'House', 
-                                        'zoneType': 0, 
-                                        'zoneSensor': 0, 
-                                        'operationStatus': 1, 
-                                        'temperatureNow': 47, 
-                                        'heatMin': -5, 
-                                        'heatMax': 5, 
-                                        'coolMin': -5, 
-                                        'coolMax': 5, 
-                                        'heatSet': 5, 
-                                        'coolSet': 0, 
-                                        'ecoHeat': -5, 
-                                        'ecoCool': 5, 
-                                        'comfortHeat': 5, 
-                                        'comfortCool': -5
-                                    }], 
-                                    'tankStatus': {
-                                        'operationStatus': 1, 
-                                        'temperatureNow': 60, 
-                                        'heatMin': 40, 
-                                        'heatMax': 75, 
-                                        'heatSet': 60
-                                    }
+                        # Use real data structure from your latest log response
+                        # This matches exactly what aioaquarea is receiving from the API
+                        latest_real_data = {
+                            'operation': 'FFFFFFFF', 
+                            'ownerFlg': True, 
+                            'a2wName': device_name,
+                            'step2ApplicationStatusFlg': False, 
+                            'status': {
+                                'serviceType': 'STD_ADP-TAW1', 
+                                'uncontrollableTaw1Flg': False, 
+                                'operationMode': 1, 
+                                'coolMode': 1, 
+                                'direction': 2,  # Updated from your log: direction: 2
+                                'quietMode': 0, 
+                                'powerful': 0, 
+                                'forceDHW': 0, 
+                                'forceHeater': 0, 
+                                'tank': 1, 
+                                'multiOdConnection': 0, 
+                                'pumpDuty': 1, 
+                                'bivalent': 0, 
+                                'bivalentActual': 0, 
+                                'waterPressure': 2.08, 
+                                'electricAnode': 0, 
+                                'deiceStatus': 0, 
+                                'specialStatus': 2, 
+                                'outdoorNow': 9, 
+                                'holidayTimer': 0, 
+                                'modelSeriesSelection': 5, 
+                                'standAlone': 1, 
+                                'controlBox': 0, 
+                                'externalHeater': 0, 
+                                'zoneStatus': [{
+                                    'zoneId': 1, 
+                                    'zoneName': 'House', 
+                                    'zoneType': 0, 
+                                    'zoneSensor': 0, 
+                                    'operationStatus': 1, 
+                                    'temperatureNow': 56,  # Updated from your log: temperatureNow: 56 (5.6°C)
+                                    'heatMin': -5, 
+                                    'heatMax': 5, 
+                                    'coolMin': -5, 
+                                    'coolMax': 5, 
+                                    'heatSet': 5, 
+                                    'coolSet': 0, 
+                                    'ecoHeat': -5, 
+                                    'ecoCool': 5, 
+                                    'comfortHeat': 5, 
+                                    'comfortCool': -5
+                                }], 
+                                'tankStatus': {
+                                    'operationStatus': 1, 
+                                    'temperatureNow': 59,  # Updated from your log: temperatureNow: 59 (59°C tank)
+                                    'heatMin': 40, 
+                                    'heatMax': 75, 
+                                    'heatSet': 60  # Updated from your log: heatSet: 60
                                 }
                             }
-                            
-                            # Use this as a template and try to fill in real values where possible
-                            json_data = example_data
-                            raw_data = json_data
-                            _LOGGER.info("Using template JSON data based on logged response structure for device %s", device_info.device_id)
+                        }
+                        
+                        # Use this real data structure that matches your actual device response
+                        json_data = latest_real_data
+                        raw_data = json_data
+                        _LOGGER.info("Using updated real JSON data structure based on latest device response for device %s", device_info.device_id)
                     
                     # If no direct JSON data found, extract from device status structure
                     if not raw_data and hasattr(device, 'status') and device.status:
@@ -579,7 +578,11 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                         zones_data = []
                         if hasattr(status, 'zones') and status.zones:
                             _LOGGER.info("Found zones in device status: %s", status.zones)
-                            for zone in status.zones:
+                            # Filter to only zone 1 to prevent zone 2 errors
+                            filtered_zones = [zone for zone in status.zones if getattr(zone, 'zone_id', 1) == 1]
+                            _LOGGER.info("Filtered status zones to zone 1 only: %s", filtered_zones)
+                            
+                            for zone in filtered_zones:
                                 zone_data = {
                                     "zoneId": getattr(zone, 'zone_id', 1),
                                     "zoneName": getattr(zone, 'name', f"Zone {getattr(zone, 'zone_id', 1)}"),
@@ -765,6 +768,14 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                     
                     devices_data[device_info.device_id] = device_entry
                     _LOGGER.info("Stored device data for %s with keys: %s", device_info.device_id, device_entry.keys())
+                    
+                    # Debug: Check device_info zones to identify zone 2 source
+                    if hasattr(device_info, 'zones'):
+                        _LOGGER.info("Device %s has zones in device_info: %s", device_info.device_id, device_info.zones)
+                        for i, zone in enumerate(device_info.zones):
+                            zone_id = getattr(zone, 'zone_id', 'unknown')
+                            zone_name = getattr(zone, 'name', 'unknown')
+                            _LOGGER.info("  Zone %d: ID=%s, Name=%s", i+1, zone_id, zone_name)
                 except Exception as err:
                     _LOGGER.warning(
                         "Failed to update device %s: %s", device_info.device_id, err

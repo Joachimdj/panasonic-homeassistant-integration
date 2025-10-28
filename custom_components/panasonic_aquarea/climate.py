@@ -66,37 +66,50 @@ async def async_setup_entry(
         _LOGGER.info("Raw data: %s", raw_data)
         _LOGGER.info("Manual data: %s", manual_data)
         
-        # Try to get zones from device_info first
+        # Get zones from raw data first (most reliable with real data)
         zones = []
-        if device_info and hasattr(device_info, 'zones'):
-            _LOGGER.info("Found zones in device_info: %s", device_info.zones)
-            zones = device_info.zones
-        # Fallback to raw data if available
-        elif raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
             _LOGGER.info("Using zones from raw data: %s", raw_data['status']['zoneStatus'])
             for zone_status in raw_data['status']['zoneStatus']:
                 # Create a simple zone object from raw data
+                zone_id = zone_status.get('zoneId', 1)
+                zone_name = zone_status.get('zoneName', f"Zone {zone_id}")
                 zones.append({
-                    'zone_id': zone_status.get('zoneId', 1),
-                    'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
+                    'zone_id': zone_id,
+                    'name': zone_name
                 })
-        # Use manual data as fallback
+        # Fallback to device_info if no raw data
+        elif device_info and hasattr(device_info, 'zones'):
+            _LOGGER.info("Found zones in device_info: %s", device_info.zones)
+            # Filter to only zone 1 to prevent zone 2 errors
+            zones = [zone for zone in device_info.zones if getattr(zone, 'zone_id', None) == 1]
+            _LOGGER.info("Filtered to zone 1 only: %s", zones)
+        # Use manual data as last resort
         elif manual_data and 'zones' in manual_data:
             _LOGGER.info("Using zones from manual data: %s", manual_data['zones'])
             zones = manual_data['zones']
         else:
-            _LOGGER.warning("No zone data found for device %s", device_id)
+            _LOGGER.warning("No zone data found for device %s, creating default zone", device_id)
+            # Create a default zone based on the typical configuration
+            zones = [{
+                'zone_id': 1,
+                'name': 'House'
+            }]
         
-        _LOGGER.info("Processed zones: %s", zones)
+        _LOGGER.info("Processed zones for device %s: %s", device_id, zones)
         
         for zone in zones:
             zone_id = getattr(zone, 'zone_id', None) or zone.get('zone_id')
             zone_name = getattr(zone, 'name', None) or zone.get('name')
-            _LOGGER.info("Creating climate entity for zone %s (%s)", zone_id, zone_name)
-            if zone_id and zone_name:
+            _LOGGER.info("Creating climate entity for device %s, zone %s (%s)", device_id, zone_id, zone_name)
+            
+            # Only create entities for zone ID 1 to prevent zone 2 errors
+            if zone_id == 1 and zone_name:
                 entity = AquareaClimate(coordinator, device_id, zone_id, zone_name)
                 entities.append(entity)
                 _LOGGER.info("Added climate entity: %s", entity)
+            elif zone_id != 1:
+                _LOGGER.warning("Skipping zone %s for device %s - only zone 1 is supported", zone_id, device_id)
     
     _LOGGER.info("Adding %d climate entities: %s", len(entities), entities)
     async_add_entities(entities)
