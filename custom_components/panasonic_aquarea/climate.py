@@ -49,9 +49,11 @@ async def async_setup_entry(
         
         device_info = device_data.get("info")
         raw_data = device_data.get("raw_data")
+        manual_data = device_data.get("manual_data")
         
         _LOGGER.info("Device info: %s", device_info)
         _LOGGER.info("Raw data: %s", raw_data)
+        _LOGGER.info("Manual data: %s", manual_data)
         
         # Try to get zones from device_info first
         zones = []
@@ -67,6 +69,10 @@ async def async_setup_entry(
                     'zone_id': zone_status.get('zoneId', 1),
                     'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
                 })
+        # Use manual data as fallback
+        elif manual_data and 'zones' in manual_data:
+            _LOGGER.info("Using zones from manual data: %s", manual_data['zones'])
+            zones = manual_data['zones']
         else:
             _LOGGER.warning("No zone data found for device %s", device_id)
         

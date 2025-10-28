@@ -34,12 +34,16 @@ async def async_setup_entry(
         device_info = device_data.get("info")
         raw_data = device_data.get("raw_data")
         
+        _LOGGER.info("Setting up sensors for device %s, raw_data available: %s", device_id, raw_data is not None)
+        
         # Zone temperature sensors - try device_info first
         zones = []
         if device_info and hasattr(device_info, 'zones'):
             zones = device_info.zones
+            _LOGGER.info("Found zones in device_info: %s", zones)
         # Fallback to raw data if available
         elif raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            _LOGGER.info("Found zones in raw_data: %s", raw_data['status']['zoneStatus'])
             for zone_status in raw_data['status']['zoneStatus']:
                 zones.append({
                     'zone_id': zone_status.get('zoneId', 1),
