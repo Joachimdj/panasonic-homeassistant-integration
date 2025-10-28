@@ -306,11 +306,32 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                     await device.set_dhw_target_temperature(temperature)
                     _LOGGER.info("🌐 API SUCCESS: Set DHW target temperature using set_dhw_target_temperature(%s°C)", temperature)
                     api_success = True
-                # Fallback to generic temperature setting methods
+                # Fallback to generic temperature setting methods (water heater might need zone_id)
                 elif hasattr(device, 'set_temperature'):
-                    await device.set_temperature(temperature)
-                    _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(%s°C)", temperature)
-                    api_success = True
+                    # Try different zone_id approaches for water heater
+                    zone_attempts = [
+                        None,  # No zone (DHW might be global)
+                        0,     # Zone 0 (tank/DHW zone)
+                        "dhw", # DHW zone identifier
+                        "tank" # Tank zone identifier
+                    ]
+                    
+                    for zone_id in zone_attempts:
+                        try:
+                            if zone_id is None:
+                                await device.set_temperature(temperature)
+                                _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(%s°C) with no zone", temperature)
+                            else:
+                                await device.set_temperature(zone_id, temperature)
+                                _LOGGER.info("🌐 API SUCCESS: Set temperature using set_temperature(zone=%s, %s°C)", zone_id, temperature)
+                            api_success = True
+                            break
+                        except Exception as zone_err:
+                            _LOGGER.debug("🌐 Zone attempt failed for zone_id=%s: %s", zone_id, zone_err)
+                            continue
+                    
+                    if not api_success:
+                        _LOGGER.warning("🌐 All zone_id attempts failed for set_temperature")
                 else:
                     _LOGGER.warning("🌐 API INFO: No temperature setting methods found on device")
                     
@@ -322,13 +343,35 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 tank = device.status.tank
                 try:
                     if hasattr(tank, 'set_target_temperature'):
-                        await tank.set_target_temperature(temperature)
-                        _LOGGER.info("🌐 API SUCCESS: Set tank target using tank.set_target_temperature(%s°C)", temperature)
-                        api_success = True
+                        # Try tank.set_target_temperature with and without zone_id
+                        try:
+                            await tank.set_target_temperature(temperature)
+                            _LOGGER.info("🌐 API SUCCESS: Set tank target using tank.set_target_temperature(%s°C)", temperature)
+                            api_success = True
+                        except Exception as tank_err:
+                            if "zone id" in str(tank_err).lower():
+                                # Try with zone_id = 0 for tank/DHW
+                                await tank.set_target_temperature(0, temperature)
+                                _LOGGER.info("🌐 API SUCCESS: Set tank target using tank.set_target_temperature(0, %s°C)", temperature)
+                                api_success = True
+                            else:
+                                raise tank_err
+                                
                     elif hasattr(tank, 'set_temperature'):
-                        await tank.set_temperature(temperature)
-                        _LOGGER.info("🌐 API SUCCESS: Set tank temperature using tank.set_temperature(%s°C)", temperature)
-                        api_success = True
+                        # Try tank.set_temperature with and without zone_id
+                        try:
+                            await tank.set_temperature(temperature)
+                            _LOGGER.info("🌐 API SUCCESS: Set tank temperature using tank.set_temperature(%s°C)", temperature)
+                            api_success = True
+                        except Exception as tank_err:
+                            if "zone id" in str(tank_err).lower():
+                                # Try with zone_id = 0 for tank/DHW
+                                await tank.set_temperature(0, temperature)
+                                _LOGGER.info("🌐 API SUCCESS: Set tank temperature using tank.set_temperature(0, %s°C)", temperature)
+                                api_success = True
+                            else:
+                                raise tank_err
+                                
                 except Exception as err:
                     _LOGGER.warning("🌐 Tank API FAILED: %s", err)
         
