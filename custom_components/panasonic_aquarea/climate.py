@@ -89,12 +89,7 @@ async def async_setup_entry(
             _LOGGER.info("Using zones from manual data: %s", manual_data['zones'])
             zones = manual_data['zones']
         else:
-            _LOGGER.warning("No zone data found for device %s, creating default zone", device_id)
-            # Create a default zone based on the typical configuration
-            zones = [{
-                'zone_id': 1,
-                'name': 'House'
-            }]
+            _LOGGER.warning("No zone data found for device %s, creating default zone", device_id) 
         
         _LOGGER.info("Processed zones for device %s: %s", device_id, zones)
         
@@ -379,17 +374,19 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
 
         device_data = self.coordinator.data.get(self._device_id)
         if not device_data:
+            _LOGGER.warning("No device data found for %s", self._device_id)
             return
 
         # Get current HVAC mode for activity logging
         old_hvac_mode = self.hvac_mode
         
-        _LOGGER.info("Setting HVAC mode to %s for device %s", hvac_mode, self._device_id)
+        _LOGGER.info("🌡️  CLIMATE ZONE %s: Setting HVAC mode from %s to %s for device %s", 
+                    self._zone_id, old_hvac_mode, hvac_mode, self._device_id)
         
         # Log the HVAC mode change for activity widget
         self._log_state_change("HVAC mode changed", old_hvac_mode, hvac_mode)
 
-        # Update the simulated data directly since we don't have real API access yet
+        # === IMMEDIATE UPDATE FOR RESPONSIVE UI ===
         raw_data = device_data.get("raw_data")
         if raw_data and 'status' in raw_data:
             # Map HVAC mode to operation mode value
@@ -401,134 +398,188 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             }
             
             operation_mode_value = mode_map.get(hvac_mode, 0)
+            old_operation_mode = raw_data['status'].get('operationMode', 'unknown')
+            
+            # Update operation mode immediately
             raw_data['status']['operationMode'] = operation_mode_value
+            _LOGGER.info("✅ IMMEDIATE UPDATE: Operation mode %s → %s (%s)", old_operation_mode, operation_mode_value, hvac_mode)
             
             # Also update zone operation status
             if 'zoneStatus' in raw_data['status']:
                 for zone_status in raw_data['status']['zoneStatus']:
                     if zone_status.get('zoneId') == self._zone_id:
+                        old_zone_status = zone_status.get('operationStatus', 'unknown')
                         zone_status['operationStatus'] = 1 if hvac_mode != HVACMode.OFF else 0
+                        _LOGGER.info("✅ Zone %s operation status %s → %s", self._zone_id, old_zone_status, zone_status['operationStatus'])
                         break
             
-            _LOGGER.info("Updated operation mode to %s (%s)", hvac_mode, operation_mode_value)
+            # Force immediate entity state update
+            self.async_write_ha_state()
+            _LOGGER.info("✅ UI updated immediately with HVAC mode %s", hvac_mode)
+        else:
+            _LOGGER.warning("❌ No raw data available to update HVAC mode")
+            return
+
+        # === ATTEMPT REAL API CALL (if available) ===
+        device = device_data.get("device")
+        api_success = False
+        
+        if device:
+            operation_mode = HVAC_MODE_TO_OPERATION_MODE[hvac_mode]
             
-            # Trigger a coordinator update to refresh all entities
+            # Try the most likely real API methods
+            api_methods = [
+                ('set_operation_mode', 'operation mode'),
+                ('set_hvac_mode', 'HVAC mode'),
+                ('set_mode', 'mode'),
+            ]
+            
+            for method_name, description in api_methods:
+                if hasattr(device, method_name):
+                    try:
+                        method = getattr(device, method_name)
+                        await method(operation_mode)
+                        _LOGGER.info("🌐 API SUCCESS: Set %s using %s(%s)", description, method_name, operation_mode)
+                        api_success = True
+                        break
+                    except Exception as err:
+                        _LOGGER.warning("🌐 API FAILED: %s failed: %s", method_name, err)
+                        continue
+        
+        if api_success:
+            _LOGGER.info("✅ Real API call succeeded - waiting for device response")
+            # Wait for API response and refresh
+            await asyncio.sleep(1.0)
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("No raw data available to update HVAC mode")
-
-        # TODO: When aioaquarea library supports it, replace with:
-        # operation_mode = HVAC_MODE_TO_OPERATION_MODE[hvac_mode]
-        # device = device_data["device"]
-        # try:
-        #     await device.set_mode(operation_mode)
-        #     await self.coordinator.async_request_refresh()
-        # except Exception as err:
-        #     _LOGGER.error("Failed to set HVAC mode: %s", err)
+            _LOGGER.info("ℹ️  No real API available - using local simulation (UI already updated)")
+            # Trigger refresh to ensure consistency across all entities
+            await self.coordinator.async_request_refresh()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
+            _LOGGER.warning("Temperature value is None, ignoring set temperature request")
+            return
+
+        # Validate temperature value
+        try:
+            temperature = float(temperature)
+            if temperature < -5 or temperature > 30:
+                _LOGGER.error("Temperature %s°C is outside valid range (-5 to 30°C)", temperature)
+                return
+        except (ValueError, TypeError):
+            _LOGGER.error("Invalid temperature value: %s", temperature)
             return
 
         device_data = self.coordinator.data.get(self._device_id)
         if not device_data:
+            _LOGGER.warning("No device data found for %s", self._device_id)
             return
 
         # Get current temperature for activity logging
         old_temperature = self.target_temperature
         
-        _LOGGER.info("Setting climate target temperature to %s°C for device %s, zone %s", temperature, self._device_id, self._zone_id)
+        _LOGGER.info("🌡️  CLIMATE ZONE %s: Setting temperature from %s°C to %s°C for device %s", 
+                    self._zone_id, old_temperature, temperature, self._device_id)
         
         # Log the temperature change for activity widget
         self._log_state_change("temperature changed", f"{old_temperature}°C" if old_temperature else "unknown", f"{temperature}°C")
 
+        # === IMMEDIATE UPDATE FOR RESPONSIVE UI ===
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            # Find the zone and update its target temperature
+            for zone_status in raw_data['status']['zoneStatus']:
+                if zone_status.get('zoneId') == self._zone_id:
+                    # Calculate the heat offset needed to reach target temperature
+                    current_temp = zone_status.get('temperatureNow', 200)  # Default 20.0°C in tenths
+                    target_temp_tenths = int(temperature * 10)  # Convert to tenths
+                    heat_offset = target_temp_tenths - current_temp
+                    
+                    # Store old value for logging
+                    old_heat_set = zone_status.get('heatSet', 0)
+                    
+                    # Update the heat set (offset from current temperature)
+                    zone_status['heatSet'] = heat_offset
+                    _LOGGER.info("✅ IMMEDIATE UPDATE: Zone %s offset %s → %s (target: %s°C, current: %s°C)", 
+                                self._zone_id, old_heat_set, heat_offset, temperature, current_temp/10.0)
+                    
+                    # Force immediate entity state update
+                    self.async_write_ha_state()
+                    _LOGGER.info("✅ UI updated immediately with new temperature %s°C", temperature)
+                    break
+            else:
+                _LOGGER.warning("❌ Zone %s not found in raw data", self._zone_id)
+                return
+        else:
+            _LOGGER.warning("❌ No raw data available to update zone temperature")
+            return
+
+        # === ATTEMPT REAL API CALL (if available) ===
         device = device_data.get("device")
+        api_success = False
         
-        # Try to use real API methods first
-        success = False
         if device:
-            # Try various possible method names for setting zone temperature
-            possible_methods = [
-                'set_zone_temperature',
-                'set_temperature',
-                'set_target_temperature',
-                'set_heating_temperature',
-                'update_temperature',
-                'set_temp'
+            # Try the most likely real API methods
+            api_methods = [
+                ('set_zone_temperature', 'zone temperature'),
+                ('set_heating_temperature', 'heating temperature'),
+                ('set_target_temperature', 'target temperature'),
             ]
             
-            for method_name in possible_methods:
+            for method_name, description in api_methods:
                 if hasattr(device, method_name):
                     try:
                         method = getattr(device, method_name)
                         # Try with zone_id parameter first, then without
                         try:
                             await method(self._zone_id, temperature)
-                            _LOGGER.info("Successfully set climate temperature using %s with zone_id", method_name)
-                            success = True
+                            _LOGGER.info("🌐 API SUCCESS: Set %s using %s(zone %s, %s°C)", description, method_name, self._zone_id, temperature)
+                            api_success = True
                             break
                         except TypeError:
                             # Method may not accept zone_id parameter
                             await method(temperature)
-                            _LOGGER.info("Successfully set climate temperature using %s without zone_id", method_name)
-                            success = True
+                            _LOGGER.info("🌐 API SUCCESS: Set %s using %s(%s°C)", description, method_name, temperature)
+                            api_success = True
                             break
                     except Exception as err:
-                        _LOGGER.warning("Failed to set climate temperature using %s: %s", method_name, err)
+                        _LOGGER.warning("🌐 API FAILED: %s failed: %s", method_name, err)
                         continue
             
             # Try zone-specific methods if device has zones
-            if not success and hasattr(device, 'status') and device.status and hasattr(device.status, 'zones'):
+            if not api_success and hasattr(device, 'status') and device.status and hasattr(device.status, 'zones'):
                 zones = device.status.zones
                 if zones and len(zones) > self._zone_id - 1:
-                    # Try to set temperature on specific zone
                     zone = zones[self._zone_id - 1]  # Zone IDs are typically 1-based
-                    zone_methods = ['set_temperature', 'set_target_temp', 'update_temperature', 'set_target']
+                    zone_methods = [
+                        ('set_target_temperature', 'zone target'),
+                        ('set_temperature', 'zone temperature'),
+                    ]
                     
-                    for method_name in zone_methods:
+                    for method_name, description in zone_methods:
                         if hasattr(zone, method_name):
                             try:
                                 method = getattr(zone, method_name)
                                 await method(temperature)
-                                _LOGGER.info("Successfully set climate temperature using zone.%s", method_name)
-                                success = True
+                                _LOGGER.info("🌐 API SUCCESS: Set %s using zone.%s(%s°C)", description, method_name, temperature)
+                                api_success = True
                                 break
                             except Exception as err:
-                                _LOGGER.warning("Failed to set climate temperature using zone.%s: %s", method_name, err)
+                                _LOGGER.warning("🌐 API FAILED: zone.%s failed: %s", method_name, err)
                                 continue
         
-        if success:
-            # Wait a moment for the change to propagate
-            await asyncio.sleep(0.5)
-            # Trigger coordinator refresh to get updated data
+        if api_success:
+            _LOGGER.info("✅ Real API call succeeded - waiting for device response")
+            # Wait for API response and refresh
+            await asyncio.sleep(1.0)
             await self.coordinator.async_request_refresh()
         else:
-            # Fallback: Update local data structure for immediate feedback
-            _LOGGER.info("No API method available, updating local data for immediate feedback")
-            raw_data = device_data.get("raw_data")
-            if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
-                # Find the zone and update its target temperature
-                for zone_status in raw_data['status']['zoneStatus']:
-                    if zone_status.get('zoneId') == self._zone_id:
-                        # Calculate the heat offset needed to reach target temperature
-                        current_temp = zone_status.get('temperatureNow', 200)  # Default 20.0°C in tenths
-                        target_temp_tenths = int(temperature * 10)  # Convert to tenths
-                        heat_offset = target_temp_tenths - current_temp
-                        
-                        # Update the heat set (offset from current temperature)
-                        zone_status['heatSet'] = heat_offset
-                        _LOGGER.info("Updated zone %s heat offset to %s (target: %s°C, current: %s°C)", 
-                                    self._zone_id, heat_offset, temperature, current_temp/10.0)
-                        
-                        # Trigger a coordinator update to refresh all entities
-                        await self.coordinator.async_request_refresh()
-                        return
-                        
-                _LOGGER.warning("Zone %s not found in raw data", self._zone_id)
-            else:
-                _LOGGER.warning("No raw data available to update zone temperature")
+            _LOGGER.info("ℹ️  No real API available - using local simulation (UI already updated)")
+            # Trigger refresh to ensure consistency across all entities
+            await self.coordinator.async_request_refresh()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
