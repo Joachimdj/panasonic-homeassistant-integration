@@ -46,11 +46,7 @@ async def async_setup_entry(
                     'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
                 })
         else:
-            # Create a hardcoded zone for testing
-            zones.append({
-                'zone_id': 1,
-                'name': 'House'
-            })
+            _LOGGER.warning("No zone data found for device %s", device_id)
         
         for zone in zones:
             zone_id = getattr(zone, 'zone_id', None) or zone.get('zone_id')
@@ -209,9 +205,6 @@ class AquareaTemperatureSensor(AquareaSensorBase):
                         # Convert from tenths of degrees to degrees
                         return float(temp_now) / 10.0
         
-        # Hardcoded fallback for testing
-        if self._zone_id == 1:
-            return 6.0
         return None
 
 
@@ -253,8 +246,7 @@ class AquareaTankTemperatureSensor(AquareaSensorBase):
                 # Tank temperature is already in degrees
                 return float(temp_now)
         
-        # Hardcoded fallback for testing - from your JSON: 58°C
-        return 58.0
+        return None
 
 
 class AquareaZoneOperationSensor(AquareaSensorBase):
@@ -284,7 +276,7 @@ class AquareaZoneOperationSensor(AquareaSensorBase):
                 if zone_status.get('zoneId') == self._zone_id:
                     operation_status = zone_status.get('operationStatus')
                     return "On" if operation_status == 1 else "Off"
-        return "Unknown"
+        return None
 
 
 class AquareaOutdoorTemperatureSensor(AquareaSensorBase):
@@ -313,7 +305,7 @@ class AquareaOutdoorTemperatureSensor(AquareaSensorBase):
             outdoor_now = raw_data['status'].get('outdoorNow')
             if outdoor_now is not None:
                 return float(outdoor_now)
-        return 8.0  # Fallback from your JSON
+        return None
 
 
 class AquareaOperationModeSensor(AquareaSensorBase):
@@ -344,7 +336,7 @@ class AquareaOperationModeSensor(AquareaSensorBase):
                 3: "Auto"
             }
             return mode_map.get(mode, f"Mode {mode}")
-        return "Heat"  # Fallback
+        return None
 
 
 class AquareaCoolModeSensor(AquareaSensorBase):
@@ -369,7 +361,7 @@ class AquareaCoolModeSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             cool_mode = raw_data['status'].get('coolMode')
             return "Enabled" if cool_mode == 1 else "Disabled"
-        return "Enabled"  # Fallback
+        return None
 
 
 class AquareaQuietModeSensor(AquareaSensorBase):
@@ -394,7 +386,7 @@ class AquareaQuietModeSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             quiet_mode = raw_data['status'].get('quietMode')
             return "On" if quiet_mode == 1 else "Off"
-        return "Off"  # Fallback
+        return None
 
 
 class AquareaPowerfulSensor(AquareaSensorBase):
@@ -419,7 +411,7 @@ class AquareaPowerfulSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             powerful = raw_data['status'].get('powerful')
             return "On" if powerful == 1 else "Off"
-        return "Off"  # Fallback
+        return None
 
 
 class AquareaForceDHWSensor(AquareaSensorBase):
@@ -444,7 +436,7 @@ class AquareaForceDHWSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             force_dhw = raw_data['status'].get('forceDHW')
             return "On" if force_dhw == 1 else "Off"
-        return "Off"  # Fallback
+        return None
 
 
 class AquareaForceHeaterSensor(AquareaSensorBase):
@@ -469,7 +461,7 @@ class AquareaForceHeaterSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             force_heater = raw_data['status'].get('forceHeater')
             return "On" if force_heater == 1 else "Off"
-        return "Off"  # Fallback
+        return None
 
 
 class AquareaPumpDutySensor(AquareaSensorBase):
@@ -496,7 +488,7 @@ class AquareaPumpDutySensor(AquareaSensorBase):
             pump_duty = raw_data['status'].get('pumpDuty')
             if pump_duty is not None:
                 return int(pump_duty)
-        return 1  # Fallback
+        return None
 
 
 class AquareaDirectionSensor(AquareaSensorBase):
@@ -527,7 +519,7 @@ class AquareaDirectionSensor(AquareaSensorBase):
                 3: "Fixed"
             }
             return direction_map.get(direction, f"Direction {direction}")
-        return "Down"  # Fallback
+        return None
 
 
 class AquareaWaterPressureSensor(AquareaSensorBase):
@@ -556,7 +548,7 @@ class AquareaWaterPressureSensor(AquareaSensorBase):
             pressure = raw_data['status'].get('waterPressure')
             if pressure is not None:
                 return float(pressure)
-        return 2.28  # Fallback from your JSON
+        return None
 
 
 class AquareaBivalentSensor(AquareaSensorBase):
@@ -581,7 +573,7 @@ class AquareaBivalentSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             bivalent = raw_data['status'].get('bivalent')
             return "Active" if bivalent == 1 else "Inactive"
-        return "Inactive"  # Fallback
+        return None
 
 
 class AquareaBivalentActualSensor(AquareaSensorBase):
@@ -606,7 +598,7 @@ class AquareaBivalentActualSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             bivalent_actual = raw_data['status'].get('bivalentActual')
             return "Active" if bivalent_actual == 1 else "Inactive"
-        return "Inactive"  # Fallback
+        return None
 
 
 class AquareaElectricAnodeSensor(AquareaSensorBase):
@@ -631,7 +623,7 @@ class AquareaElectricAnodeSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             electric_anode = raw_data['status'].get('electricAnode')
             return "On" if electric_anode == 1 else "Off"
-        return "Off"  # Fallback
+        return None
 
 
 class AquareaDeiceStatusSensor(AquareaSensorBase):
@@ -656,7 +648,7 @@ class AquareaDeiceStatusSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             deice_status = raw_data['status'].get('deiceStatus')
             return "Active" if deice_status == 1 else "Inactive"
-        return "Inactive"  # Fallback
+        return None
 
 
 class AquareaSpecialStatusSensor(AquareaSensorBase):
@@ -682,7 +674,7 @@ class AquareaSpecialStatusSensor(AquareaSensorBase):
             special_status = raw_data['status'].get('specialStatus')
             if special_status is not None:
                 return int(special_status)
-        return 2  # Fallback
+        return None
 
 
 class AquareaHolidayTimerSensor(AquareaSensorBase):
@@ -707,7 +699,7 @@ class AquareaHolidayTimerSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             holiday_timer = raw_data['status'].get('holidayTimer')
             return "Active" if holiday_timer == 1 else "Inactive"
-        return "Inactive"  # Fallback
+        return None
 
 
 class AquareaModelSeriesSensor(AquareaSensorBase):
@@ -733,7 +725,7 @@ class AquareaModelSeriesSensor(AquareaSensorBase):
             model_series = raw_data['status'].get('modelSeriesSelection')
             if model_series is not None:
                 return int(model_series)
-        return 5  # Fallback
+        return None
 
 
 class AquareaStandAloneSensor(AquareaSensorBase):
@@ -758,7 +750,7 @@ class AquareaStandAloneSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             stand_alone = raw_data['status'].get('standAlone')
             return "Yes" if stand_alone == 1 else "No"
-        return "Yes"  # Fallback
+        return None
 
 
 class AquareaControlBoxSensor(AquareaSensorBase):
@@ -783,7 +775,7 @@ class AquareaControlBoxSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             control_box = raw_data['status'].get('controlBox')
             return "Active" if control_box == 1 else "Inactive"
-        return "Inactive"  # Fallback
+        return None
 
 
 class AquareaExternalHeaterSensor(AquareaSensorBase):
@@ -808,7 +800,7 @@ class AquareaExternalHeaterSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             external_heater = raw_data['status'].get('externalHeater')
             return "Active" if external_heater == 1 else "Inactive"
-        return "Inactive"  # Fallback
+        return None
 
 
 class AquareaMultiOdConnectionSensor(AquareaSensorBase):
@@ -833,7 +825,7 @@ class AquareaMultiOdConnectionSensor(AquareaSensorBase):
         if raw_data and 'status' in raw_data:
             multi_od = raw_data['status'].get('multiOdConnection')
             return "Connected" if multi_od == 1 else "Disconnected"
-        return "Disconnected"  # Fallback
+        return None
 
 
 class AquareaTankOperationSensor(AquareaSensorBase):
@@ -859,4 +851,4 @@ class AquareaTankOperationSensor(AquareaSensorBase):
             tank_status = raw_data['status']['tankStatus']
             operation_status = tank_status.get('operationStatus')
             return "On" if operation_status == 1 else "Off"
-        return "On"  # Fallback
+        return None

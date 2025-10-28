@@ -68,13 +68,7 @@ async def async_setup_entry(
                     'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
                 })
         else:
-            _LOGGER.warning("No zone data found for device %s, creating fallback zone", device_id)
-            # Create a hardcoded zone for testing based on your JSON structure
-            # This is temporary to verify the integration works
-            zones.append({
-                'zone_id': 1,
-                'name': 'House'
-            })
+            _LOGGER.warning("No zone data found for device %s", device_id)
         
         _LOGGER.info("Processed zones: %s", zones)
         
@@ -205,11 +199,7 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
                         _LOGGER.info("Converted temperature: %s", result)
                         return result
         
-        # Hardcoded fallback for testing - using values from your JSON log
-        _LOGGER.warning("No temperature data found for zone %s, using hardcoded fallback", self._zone_id)
-        if self._zone_id == 1:
-            # From your log: temperatureNow: 60 -> 6.0°C
-            return 6.0
+        _LOGGER.warning("No temperature data found for zone %s", self._zone_id)
         return None
 
     @property
@@ -242,10 +232,6 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
                         # Convert from tenths of degrees to degrees and add offset
                         return (float(temp_now) + float(heat_set)) / 10.0
         
-        # Hardcoded fallback for testing - using values from your JSON log
-        if self._zone_id == 1:
-            # From your log: temperatureNow: 60, heatSet: 4 -> (60+4)/10 = 6.4°C
-            return 6.4
         return None
 
     @property
