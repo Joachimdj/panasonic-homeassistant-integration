@@ -396,17 +396,14 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Update data via library."""
         try:
-            # Get devices with long ID included as per aioaquarea example
-            devices_info = await self.client.get_devices(include_long_id=True)
+            # Get devices from aioaquarea client
+            devices_info = await self.client.get_devices()
             devices_data = {}
             
             for device_info in devices_info:
                 try:
-                    # Get device with consumption refresh interval as per aioaquarea example
-                    device = await self.client.get_device(
-                        device_info=device_info, 
-                        consumption_refresh_interval=timedelta(minutes=1)
-                    )
+                    # Get device from aioaquarea client
+                    device = await self.client.get_device(device_info=device_info)
                     await device.refresh_data()
                     
                     # Comprehensive debug logging to understand data structure
