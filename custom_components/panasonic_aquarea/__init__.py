@@ -14,11 +14,21 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from aioaquarea import Client, AquareaEnvironment
 from aioaquarea.errors import ClientError
 
-from .const import DOMAIN, UPDATE_INTERVAL
+from .const import (
+    DOMAIN, 
+    UPDATE_INTERVAL,
+    SERVICE_SET_ECO_MODE,
+    SERVICE_SET_COMFORT_MODE,
+    SERVICE_SET_QUIET_MODE,
+    SERVICE_SET_POWERFUL_MODE,
+    SERVICE_FORCE_DHW,
+    SERVICE_FORCE_HEATER,
+    SERVICE_SET_HOLIDAY_MODE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_HEATER]
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_HEATER, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -49,6 +59,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("Setting up platforms: %s", PLATFORMS)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register custom services for advanced controls
+    await _async_register_services(hass, coordinator)
+
     _LOGGER.info("Panasonic Aquarea integration setup completed successfully")
     return True
 
@@ -58,7 +71,185 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
 
+    # Unregister services
+    hass.services.async_remove(DOMAIN, SERVICE_SET_ECO_MODE)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_COMFORT_MODE)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_QUIET_MODE)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_POWERFUL_MODE)
+    hass.services.async_remove(DOMAIN, SERVICE_FORCE_DHW)
+    hass.services.async_remove(DOMAIN, SERVICE_FORCE_HEATER)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_HOLIDAY_MODE)
+
     return unload_ok
+
+
+async def _async_register_services(hass: HomeAssistant, coordinator: AquareaDataUpdateCoordinator) -> None:
+    """Register custom services for advanced heat pump controls."""
+    
+    async def async_set_eco_mode(call) -> None:
+        """Handle eco mode service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        
+        for entity_id in entity_ids:
+            # Find the climate entity and call its eco mode method
+            state = hass.states.get(entity_id)
+            if state and state.domain == "climate":
+                # Get the device_id from entity_id
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_eco_mode'):
+                        try:
+                            await device.set_eco_mode(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set eco mode: %s", err)
+
+    async def async_set_comfort_mode(call) -> None:
+        """Handle comfort mode service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            if state and state.domain == "climate":
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_comfort_mode'):
+                        try:
+                            await device.set_comfort_mode(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set comfort mode: %s", err)
+
+    async def async_set_quiet_mode(call) -> None:
+        """Handle quiet mode service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            if state and state.domain == "climate":
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_quiet_mode'):
+                        try:
+                            await device.set_quiet_mode(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set quiet mode: %s", err)
+
+    async def async_set_powerful_mode(call) -> None:
+        """Handle powerful mode service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            if state and state.domain == "climate":
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_powerful_mode'):
+                        try:
+                            await device.set_powerful_mode(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set powerful mode: %s", err)
+
+    async def async_force_dhw(call) -> None:
+        """Handle force DHW service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            if state and state.domain == "water_heater":
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_force_dhw'):
+                        try:
+                            await device.set_force_dhw(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set force DHW: %s", err)
+
+    async def async_force_heater(call) -> None:
+        """Handle force heater service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            if state and state.domain == "climate":
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_force_heater'):
+                        try:
+                            await device.set_force_heater(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set force heater: %s", err)
+
+    async def async_set_holiday_mode(call) -> None:
+        """Handle holiday mode service call."""
+        entity_ids = call.data.get("entity_id", [])
+        enabled = call.data.get("enabled", True)
+        duration_days = call.data.get("duration_days")
+        
+        for entity_id in entity_ids:
+            state = hass.states.get(entity_id)
+            if state and state.domain == "climate":
+                device_id = _extract_device_id_from_entity_id(entity_id)
+                if device_id and device_id in coordinator.data:
+                    device_data = coordinator.data[device_id]
+                    device = device_data.get("device")
+                    if device and hasattr(device, 'set_holiday_mode'):
+                        try:
+                            if duration_days:
+                                await device.set_holiday_mode(enabled, duration_days)
+                            else:
+                                await device.set_holiday_mode(enabled)
+                            await coordinator.async_request_refresh()
+                        except Exception as err:
+                            _LOGGER.error("Failed to set holiday mode: %s", err)
+
+    # Register services
+    hass.services.async_register(DOMAIN, SERVICE_SET_ECO_MODE, async_set_eco_mode)
+    hass.services.async_register(DOMAIN, SERVICE_SET_COMFORT_MODE, async_set_comfort_mode)
+    hass.services.async_register(DOMAIN, SERVICE_SET_QUIET_MODE, async_set_quiet_mode)
+    hass.services.async_register(DOMAIN, SERVICE_SET_POWERFUL_MODE, async_set_powerful_mode)
+    hass.services.async_register(DOMAIN, SERVICE_FORCE_DHW, async_force_dhw)
+    hass.services.async_register(DOMAIN, SERVICE_FORCE_HEATER, async_force_heater)
+    hass.services.async_register(DOMAIN, SERVICE_SET_HOLIDAY_MODE, async_set_holiday_mode)
+
+
+def _extract_device_id_from_entity_id(entity_id: str) -> str | None:
+    """Extract device ID from entity ID."""
+    # Assumes entity_id format like "climate.devicename_zone_1" 
+    # and unique_id format like "deviceid_zone_1"
+    parts = entity_id.split(".")
+    if len(parts) >= 2:
+        # Remove domain prefix and try to extract device part
+        entity_part = parts[1]
+        # This is a simplified extraction - in reality you might need
+        # to match against actual entity unique_ids to get device_id
+        if "_zone_" in entity_part:
+            return entity_part.split("_zone_")[0]
+        elif "_water_heater" in entity_part:
+            return entity_part.replace("_water_heater", "")
+    return None
 
 
 class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
@@ -157,7 +348,7 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                     # This will be replaced once we figure out how to properly access the aioaquarea data
                     if not raw_data and device_info.device_id == "B497204181":
                         _LOGGER.info("Creating simulated raw_data structure for device %s", device_info.device_id)
-                        # This matches the JSON structure from your logs
+                        # This matches the JSON structure from your logs with added Cloud Comfort controls
                         device_entry["raw_data"] = {
                             "a2wName": "Langagervej",
                             "status": {
@@ -182,21 +373,36 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                                 "controlBox": 0,
                                 "externalHeater": 0,
                                 "multiOdConnection": 0,
+                                # Cloud Comfort app advanced controls
+                                "ecoMode": 0,           # 0=off, 1=on
+                                "comfortMode": 1,       # 0=off, 1=on  
+                                "holidayMode": 0,       # 0=off, 1=on
+                                "holidayDays": 0,       # Days remaining in holiday mode
+                                "heaterControl": 0,     # 0=auto, 1=force on, 2=force off
+                                "dhwPriority": 0,       # 0=normal, 1=priority mode
+                                "scheduleEnabled": 1,   # 0=off, 1=on
+                                "defrostMode": 0,       # 0=normal, 1=active defrost
                                 "zoneStatus": [{
                                     "zoneId": 1,
                                     "zoneName": "House",
                                     "operationStatus": 1,
                                     "temperatureNow": 45,  # This will be 4.5°C
                                     "heatSet": 2,          # This will add 0.2°C to target
+                                    "ecoOffset": -2,       # Eco mode temperature offset (tenths)
+                                    "comfortOffset": 1,    # Comfort mode temperature offset (tenths)
                                 }],
                                 "tankStatus": {
                                     "operationStatus": 1,
                                     "temperatureNow": 62,  # This is 62°C for tank
-                                    "heatSet": 60          # Target 60°C
+                                    "heatSet": 60,         # Target 60°C
+                                    "ecoTemp": 55,         # Eco mode target temperature
+                                    "comfortTemp": 65,     # Comfort mode target temperature
+                                    "legionellaMode": 0,   # 0=off, 1=active
+                                    "reheatMode": 1        # 0=off, 1=on
                                 }
                             }
                         }
-                        _LOGGER.info("Created simulated raw_data with temperature data: %s", device_entry["raw_data"])
+                        _LOGGER.info("Created simulated raw_data with Cloud Comfort controls: %s", device_entry["raw_data"])
                     
                     devices_data[device_info.device_id] = device_entry
                     _LOGGER.info("Stored device data for %s with keys: %s", device_info.device_id, device_entry.keys())

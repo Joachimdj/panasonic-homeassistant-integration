@@ -19,7 +19,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from aioaquarea.data import OperationStatus
 
 from . import AquareaDataUpdateCoordinator
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    MODE_FORCE_DHW,
+    COMFORT_ECO,
+    COMFORT_NORMAL,
+    COMFORT_COMFORT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,6 +112,7 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         return (
             WaterHeaterEntityFeature.TARGET_TEMPERATURE 
             | WaterHeaterEntityFeature.ON_OFF
+            | WaterHeaterEntityFeature.OPERATION_MODE
         )
 
     @property
@@ -178,6 +185,34 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
                 return STATE_OFF
         return None
 
+    @property
+    def operation_list(self) -> list[str]:
+        """List of available operation modes."""
+        return [COMFORT_ECO, COMFORT_NORMAL, COMFORT_COMFORT, MODE_FORCE_DHW]
+
+    @property
+    def current_operation(self) -> str | None:
+        """Return current operation mode."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or "status" not in raw_data:
+            return COMFORT_NORMAL
+            
+        status = raw_data["status"]
+        
+        # Check for force DHW mode first
+        if status.get("forceDHW"):
+            return MODE_FORCE_DHW
+        elif status.get("ecoMode"):
+            return COMFORT_ECO
+        elif status.get("comfortMode"):
+            return COMFORT_COMFORT
+        else:
+            return COMFORT_NORMAL
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
@@ -205,5 +240,76 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
     async def async_turn_off(self) -> None:
         """Turn the water heater off."""
-        # Implementation depends on available API methods
-        pass
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data or not device_data.get("device"):
+            return
+
+        device = device_data["device"]
+
+        try:
+            if hasattr(device, 'set_tank_operation'):
+                await device.set_tank_operation(False)
+                await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("Failed to turn off water heater: %s", err)
+
+    async def async_set_operation_mode(self, operation_mode: str) -> None:
+        """Set operation mode."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data or not device_data.get("device"):
+            return
+
+        device = device_data["device"]
+
+        try:
+            # Reset all modes first
+            if hasattr(device, 'set_force_dhw'):
+                await device.set_force_dhw(False)
+            if hasattr(device, 'set_eco_mode'):
+                await device.set_eco_mode(False)
+            if hasattr(device, 'set_comfort_mode'):
+                await device.set_comfort_mode(False)
+
+            # Set the requested mode
+            if operation_mode == MODE_FORCE_DHW and hasattr(device, 'set_force_dhw'):
+                await device.set_force_dhw(True)
+            elif operation_mode == COMFORT_ECO and hasattr(device, 'set_eco_mode'):
+                await device.set_eco_mode(True)
+            elif operation_mode == COMFORT_COMFORT and hasattr(device, 'set_comfort_mode'):
+                await device.set_comfort_mode(True)
+            # COMFORT_NORMAL is achieved by turning off all special modes
+            
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("Failed to set operation mode: %s", err)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes for Cloud Comfort app DHW features."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or "status" not in raw_data:
+            return None
+            
+        status = raw_data["status"]
+        attributes = {}
+        
+        # DHW specific attributes
+        attributes["force_dhw"] = bool(status.get("forceDHW", 0))
+        attributes["eco_mode"] = bool(status.get("ecoMode", 0))
+        attributes["comfort_mode"] = bool(status.get("comfortMode", 0))
+        attributes["dhw_priority"] = bool(status.get("dhwPriority", 0))
+        
+        # Tank-specific attributes from raw data
+        tank_status = status.get("tankStatus", {})
+        if tank_status:
+            attributes["tank_operation_status"] = tank_status.get("operationStatus")
+            attributes["eco_temperature"] = tank_status.get("ecoTemp")
+            attributes["comfort_temperature"] = tank_status.get("comfortTemp")
+            attributes["legionella_mode"] = bool(tank_status.get("legionellaMode", 0))
+            attributes["reheat_mode"] = bool(tank_status.get("reheatMode", 0))
+            
+        return attributes

@@ -19,7 +19,16 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from aioaquarea.data import UpdateOperationMode, OperationStatus
 
 from . import AquareaDataUpdateCoordinator
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    MODE_QUIET,
+    MODE_POWERFUL,
+    MODE_FORCE_HEATER,
+    MODE_HOLIDAY,
+    COMFORT_ECO,
+    COMFORT_NORMAL,
+    COMFORT_COMFORT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -149,12 +158,55 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             ClimateEntityFeature.TARGET_TEMPERATURE 
             | ClimateEntityFeature.TURN_ON 
             | ClimateEntityFeature.TURN_OFF
+            | ClimateEntityFeature.PRESET_MODE
         )
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
         """Return the list of available hvac operation modes."""
         return list(HVAC_MODE_TO_OPERATION_MODE.keys())
+
+    @property
+    def preset_modes(self) -> list[str]:
+        """Return a list of available preset modes."""
+        return [
+            COMFORT_ECO,
+            COMFORT_NORMAL,
+            COMFORT_COMFORT,
+            MODE_QUIET,
+            MODE_POWERFUL,
+            MODE_FORCE_HEATER,
+            MODE_HOLIDAY,
+        ]
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return the current preset mode."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or "status" not in raw_data:
+            return None
+            
+        status = raw_data["status"]
+        
+        # Check for active special modes
+        if status.get("holidayMode"):
+            return MODE_HOLIDAY
+        elif status.get("quietMode"):
+            return MODE_QUIET
+        elif status.get("powerful"):
+            return MODE_POWERFUL
+        elif status.get("forceHeater"):
+            return MODE_FORCE_HEATER
+        elif status.get("ecoMode"):
+            return COMFORT_ECO
+        elif status.get("comfortMode"):
+            return COMFORT_COMFORT
+        else:
+            return COMFORT_NORMAL
 
     @property
     def temperature_unit(self) -> str:
@@ -311,3 +363,92 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
                 await self.coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Failed to set temperature: %s", err)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data or not device_data.get("device"):
+            return
+
+        device = device_data["device"]
+
+        try:
+            # Reset all modes first
+            if hasattr(device, 'set_quiet_mode'):
+                await device.set_quiet_mode(False)
+            if hasattr(device, 'set_powerful_mode'):
+                await device.set_powerful_mode(False)
+            if hasattr(device, 'set_force_heater'):
+                await device.set_force_heater(False)
+            if hasattr(device, 'set_holiday_mode'):
+                await device.set_holiday_mode(False)
+            if hasattr(device, 'set_eco_mode'):
+                await device.set_eco_mode(False)
+            if hasattr(device, 'set_comfort_mode'):
+                await device.set_comfort_mode(False)
+
+            # Set the requested mode
+            if preset_mode == MODE_QUIET and hasattr(device, 'set_quiet_mode'):
+                await device.set_quiet_mode(True)
+            elif preset_mode == MODE_POWERFUL and hasattr(device, 'set_powerful_mode'):
+                await device.set_powerful_mode(True)
+            elif preset_mode == MODE_FORCE_HEATER and hasattr(device, 'set_force_heater'):
+                await device.set_force_heater(True)
+            elif preset_mode == MODE_HOLIDAY and hasattr(device, 'set_holiday_mode'):
+                await device.set_holiday_mode(True)
+            elif preset_mode == COMFORT_ECO and hasattr(device, 'set_eco_mode'):
+                await device.set_eco_mode(True)
+            elif preset_mode == COMFORT_COMFORT and hasattr(device, 'set_comfort_mode'):
+                await device.set_comfort_mode(True)
+            # COMFORT_NORMAL is achieved by turning off all special modes (already done above)
+            
+            await self.coordinator.async_request_refresh()
+        except Exception as err:
+            _LOGGER.error("Failed to set preset mode: %s", err)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes for Cloud Comfort app features."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if not raw_data or "status" not in raw_data:
+            return None
+            
+        status = raw_data["status"]
+        attributes = {}
+        
+        # Cloud Comfort app specific attributes
+        attributes["eco_mode"] = bool(status.get("ecoMode", 0))
+        attributes["comfort_mode"] = bool(status.get("comfortMode", 0))
+        attributes["quiet_mode"] = bool(status.get("quietMode", 0))
+        attributes["powerful_mode"] = bool(status.get("powerful", 0))
+        attributes["force_dhw"] = bool(status.get("forceDHW", 0))
+        attributes["force_heater"] = bool(status.get("forceHeater", 0))
+        attributes["holiday_mode"] = bool(status.get("holidayMode", 0))
+        attributes["holiday_days_remaining"] = status.get("holidayDays", 0)
+        
+        # Additional system information
+        attributes["outdoor_temperature"] = status.get("outdoorNow")
+        attributes["water_pressure"] = status.get("waterPressure")
+        attributes["pump_duty"] = status.get("pumpDuty")
+        attributes["defrost_mode"] = bool(status.get("defrostMode", 0))
+        attributes["external_heater"] = bool(status.get("externalHeater", 0))
+        attributes["schedule_enabled"] = bool(status.get("scheduleEnabled", 1))
+        
+        # Zone-specific attributes
+        zone_status = None
+        if "zoneStatus" in status:
+            for zone in status["zoneStatus"]:
+                if zone.get("zoneId") == self._zone_id:
+                    zone_status = zone
+                    break
+                    
+        if zone_status:
+            attributes["zone_operation_status"] = zone_status.get("operationStatus")
+            attributes["eco_offset"] = zone_status.get("ecoOffset", 0) / 10.0  # Convert from tenths
+            attributes["comfort_offset"] = zone_status.get("comfortOffset", 0) / 10.0
+            
+        return attributes

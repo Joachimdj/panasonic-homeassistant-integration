@@ -80,6 +80,16 @@ async def async_setup_entry(
             AquareaPumpDutySensor(coordinator, device_id),
             AquareaDirectionSensor(coordinator, device_id),
             
+            # Cloud Comfort app sensors
+            AquareaEcoModeSensor(coordinator, device_id),
+            AquareaComfortModeSensor(coordinator, device_id),
+            AquareaHolidayModeSensor(coordinator, device_id),
+            AquareaHolidayDaysSensor(coordinator, device_id),
+            AquareaHeaterControlSensor(coordinator, device_id),
+            AquareaDHWPrioritySensor(coordinator, device_id),
+            AquareaScheduleEnabledSensor(coordinator, device_id),
+            AquareaDefrostModeSensor(coordinator, device_id),
+            
             # Pressure sensor
             AquareaWaterPressureSensor(coordinator, device_id),
             
@@ -109,6 +119,11 @@ async def async_setup_entry(
             entities.extend([
                 AquareaTankTemperatureSensor(coordinator, device_id),
                 AquareaTankOperationSensor(coordinator, device_id),
+                # Cloud Comfort tank sensors
+                AquareaTankEcoTemperatureSensor(coordinator, device_id),
+                AquareaTankComfortTemperatureSensor(coordinator, device_id),
+                AquareaLegionellaModeSensor(coordinator, device_id),
+                AquareaReheatModeSensor(coordinator, device_id),
             ])
     
     async_add_entities(entities)
@@ -855,4 +870,327 @@ class AquareaTankOperationSensor(AquareaSensorBase):
             tank_status = raw_data['status']['tankStatus']
             operation_status = tank_status.get('operationStatus')
             return "On" if operation_status == 1 else "Off"
+        return None
+
+
+# Cloud Comfort App specific sensors
+
+class AquareaEcoModeSensor(AquareaSensorBase):
+    """Eco mode sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the eco mode sensor."""
+        super().__init__(coordinator, device_id, "Eco Mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            eco_mode = raw_data['status'].get('ecoMode')
+            return "On" if eco_mode == 1 else "Off"
+        return None
+
+
+class AquareaComfortModeSensor(AquareaSensorBase):
+    """Comfort mode sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the comfort mode sensor."""
+        super().__init__(coordinator, device_id, "Comfort Mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            comfort_mode = raw_data['status'].get('comfortMode')
+            return "On" if comfort_mode == 1 else "Off"
+        return None
+
+
+class AquareaHolidayModeSensor(AquareaSensorBase):
+    """Holiday mode sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the holiday mode sensor."""
+        super().__init__(coordinator, device_id, "Holiday Mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            holiday_mode = raw_data['status'].get('holidayMode')
+            return "On" if holiday_mode == 1 else "Off"
+        return None
+
+
+class AquareaHolidayDaysSensor(AquareaSensorBase):
+    """Holiday days remaining sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the holiday days sensor."""
+        super().__init__(coordinator, device_id, "Holiday Days Remaining")
+        self._attr_native_unit_of_measurement = "days"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            holiday_days = raw_data['status'].get('holidayDays')
+            if holiday_days is not None:
+                return int(holiday_days)
+        return None
+
+
+class AquareaHeaterControlSensor(AquareaSensorBase):
+    """Heater control sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the heater control sensor."""
+        super().__init__(coordinator, device_id, "Heater Control")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            heater_control = raw_data['status'].get('heaterControl')
+            control_map = {
+                0: "Auto",
+                1: "Force On",
+                2: "Force Off"
+            }
+            return control_map.get(heater_control, f"Mode {heater_control}")
+        return None
+
+
+class AquareaDHWPrioritySensor(AquareaSensorBase):
+    """DHW priority sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the DHW priority sensor."""
+        super().__init__(coordinator, device_id, "DHW Priority")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            dhw_priority = raw_data['status'].get('dhwPriority')
+            return "Priority" if dhw_priority == 1 else "Normal"
+        return None
+
+
+class AquareaScheduleEnabledSensor(AquareaSensorBase):
+    """Schedule enabled sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the schedule enabled sensor."""
+        super().__init__(coordinator, device_id, "Schedule Enabled")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            schedule_enabled = raw_data['status'].get('scheduleEnabled')
+            return "On" if schedule_enabled == 1 else "Off"
+        return None
+
+
+class AquareaDefrostModeSensor(AquareaSensorBase):
+    """Defrost mode sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the defrost mode sensor."""
+        super().__init__(coordinator, device_id, "Defrost Mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data:
+            defrost_mode = raw_data['status'].get('defrostMode')
+            return "Active" if defrost_mode == 1 else "Normal"
+        return None
+
+
+# Cloud Comfort Tank specific sensors
+
+class AquareaTankEcoTemperatureSensor(AquareaSensorBase):
+    """Tank eco temperature sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the tank eco temperature sensor."""
+        super().__init__(coordinator, device_id, "Tank Eco Temperature")
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            eco_temp = tank_status.get('ecoTemp')
+            if eco_temp is not None:
+                return float(eco_temp)
+        return None
+
+
+class AquareaTankComfortTemperatureSensor(AquareaSensorBase):
+    """Tank comfort temperature sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the tank comfort temperature sensor."""
+        super().__init__(coordinator, device_id, "Tank Comfort Temperature")
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            comfort_temp = tank_status.get('comfortTemp')
+            if comfort_temp is not None:
+                return float(comfort_temp)
+        return None
+
+
+class AquareaLegionellaModeSensor(AquareaSensorBase):
+    """Legionella mode sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the legionella mode sensor."""
+        super().__init__(coordinator, device_id, "Legionella Mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            legionella_mode = tank_status.get('legionellaMode')
+            return "Active" if legionella_mode == 1 else "Off"
+        return None
+
+
+class AquareaReheatModeSensor(AquareaSensorBase):
+    """Reheat mode sensor from Cloud Comfort app."""
+
+    def __init__(
+        self,
+        coordinator: AquareaDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        """Initialize the reheat mode sensor."""
+        super().__init__(coordinator, device_id, "Reheat Mode")
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_id)
+        if not device_data:
+            return None
+            
+        raw_data = device_data.get("raw_data")
+        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
+            tank_status = raw_data['status']['tankStatus']
+            reheat_mode = tank_status.get('reheatMode')
+            return "On" if reheat_mode == 1 else "Off"
         return None

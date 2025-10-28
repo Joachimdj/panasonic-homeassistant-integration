@@ -1,0 +1,113 @@
+set_eco_mode:
+  name: Set Eco Mode
+  description: Set the heat pump to energy-saving eco mode
+  target:
+    entity:
+      domain: climate
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable eco mode
+      required: true
+      selector:
+        boolean:
+
+set_comfort_mode:
+  name: Set Comfort Mode  
+  description: Set the heat pump to comfort mode for optimal performance
+  target:
+    entity:
+      domain: climate
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable comfort mode
+      required: true
+      selector:
+        boolean:
+
+set_quiet_mode:
+  name: Set Quiet Mode
+  description: Enable quiet operation to reduce noise
+  target:
+    entity:
+      domain: climate
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable quiet mode
+      required: true
+      selector:
+        boolean:
+
+set_powerful_mode:
+  name: Set Powerful Mode
+  description: Enable powerful mode for maximum heating/cooling performance
+  target:
+    entity:
+      domain: climate
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable powerful mode
+      required: true
+      selector:
+        boolean:
+
+force_dhw:
+  name: Force Domestic Hot Water
+  description: Force the system to prioritize domestic hot water heating
+  target:
+    entity:
+      domain: water_heater
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable forced DHW mode
+      required: true
+      selector:
+        boolean:
+
+force_heater:
+  name: Force External Heater
+  description: Force the use of external/backup heater
+  target:
+    entity:
+      domain: climate
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable forced heater mode
+      required: true
+      selector:
+        boolean:
+
+set_holiday_mode:
+  name: Set Holiday Mode
+  description: Enable holiday mode with reduced operation schedule
+  target:
+    entity:
+      domain: climate
+      integration: panasonic_aquarea
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable holiday mode
+      required: true
+      selector:
+        boolean:
+    duration_days:
+      name: Duration (Days)
+      description: Number of days for holiday mode (optional)
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 365
+          mode: box

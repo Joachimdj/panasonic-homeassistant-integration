@@ -1,9 +1,10 @@
 {
-  "name": "Panasonic Aquarea",
+  "name": "Panasonic Aquarea for Homeassistant",
   "content_in_root": false,
   "filename": "panasonic_aquarea",
   "country": [],
   "homeassistant": "2023.1.0",
   "iot_class": "Cloud Polling",
-  "render_readme": true
+  "render_readme": true,
+  "image": "https://raw.githubusercontent.com/Joachimdj/panasonic-homeassistant-integration/main/images/panasonic_aquarea_logo.png"
 }
