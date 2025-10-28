@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from . import AquareaDataUpdateCoordinator
 from .const import DOMAIN
@@ -90,6 +91,36 @@ class AquareaSwitchBase(CoordinatorEntity, SwitchEntity):
         self._attr_name = f"{device_name} {switch_type}"
         self._attr_unique_id = f"{device_id}_{switch_type.lower().replace(' ', '_')}"
 
+    def _log_state_change(self, action: str, old_value: Any = None, new_value: Any = None) -> None:
+        """Log state changes for the Activity widget."""
+        try:
+            # Create a detailed log message for the activity widget
+            if old_value is not None and new_value is not None:
+                message = f"{self._switch_type} {action}: {old_value} → {new_value}"
+            else:
+                message = f"{self._switch_type} {action}"
+            
+            # Log with INFO level to ensure it appears in Home Assistant logs and activity
+            _LOGGER.info("%s for device %s", message, self._device_id)
+            
+            # Fire a custom event for the activity widget
+            if self.hass:
+                self.hass.bus.async_fire(
+                    "panasonic_aquarea_action",
+                    {
+                        "entity_id": self.entity_id,
+                        "device_id": self._device_id,
+                        "switch_type": self._switch_type,
+                        "action": action,
+                        "old_value": old_value,
+                        "new_value": new_value,
+                        "timestamp": dt_util.utcnow().isoformat(),
+                        "device_type": "switch"
+                    }
+                )
+        except Exception as err:
+            _LOGGER.debug("Failed to log state change: %s", err)
+
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
@@ -143,6 +174,9 @@ class AquareaEcoModeSwitch(AquareaSwitchBase):
             return
 
         _LOGGER.info("Turning on eco mode for device %s", self._device_id)
+        
+        # Log the state change for activity widget
+        self._log_state_change("turned on", "OFF", "ON")
 
         device = device_data.get("device")
         
@@ -194,6 +228,9 @@ class AquareaEcoModeSwitch(AquareaSwitchBase):
             return
 
         _LOGGER.info("Turning off eco mode for device %s", self._device_id)
+        
+        # Log the state change for activity widget
+        self._log_state_change("turned off", "ON", "OFF")
 
         device = device_data.get("device")
         

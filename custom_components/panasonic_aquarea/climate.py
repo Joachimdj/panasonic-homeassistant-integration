@@ -16,6 +16,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from aioaquarea.data import UpdateOperationMode, OperationStatus
 
@@ -130,6 +131,37 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
             
         self._attr_name = f"{device_name} {zone_name}"
         self._attr_unique_id = f"{device_id}_zone_{zone_id}"
+
+    def _log_state_change(self, action: str, old_value: Any = None, new_value: Any = None) -> None:
+        """Log state changes for the Activity widget."""
+        try:
+            # Create a detailed log message for the activity widget
+            if old_value is not None and new_value is not None:
+                message = f"Climate Zone {self._zone_id} {action}: {old_value} → {new_value}"
+            else:
+                message = f"Climate Zone {self._zone_id} {action}"
+            
+            # Log with INFO level to ensure it appears in Home Assistant logs and activity
+            _LOGGER.info("%s for device %s", message, self._device_id)
+            
+            # Fire a custom event for the activity widget
+            if self.hass:
+                self.hass.bus.async_fire(
+                    "panasonic_aquarea_action",
+                    {
+                        "entity_id": self.entity_id,
+                        "device_id": self._device_id,
+                        "zone_id": self._zone_id,
+                        "zone_name": self._zone_name,
+                        "action": action,
+                        "old_value": old_value,
+                        "new_value": new_value,
+                        "timestamp": dt_util.utcnow().isoformat(),
+                        "device_type": "climate"
+                    }
+                )
+        except Exception as err:
+            _LOGGER.debug("Failed to log state change: %s", err)
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -336,7 +368,13 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
         if not device_data:
             return
 
+        # Get current HVAC mode for activity logging
+        old_hvac_mode = self.hvac_mode
+        
         _LOGGER.info("Setting HVAC mode to %s for device %s", hvac_mode, self._device_id)
+        
+        # Log the HVAC mode change for activity widget
+        self._log_state_change("HVAC mode changed", old_hvac_mode, hvac_mode)
 
         # Update the simulated data directly since we don't have real API access yet
         raw_data = device_data.get("raw_data")
@@ -385,7 +423,13 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
         if not device_data:
             return
 
+        # Get current temperature for activity logging
+        old_temperature = self.target_temperature
+        
         _LOGGER.info("Setting climate target temperature to %s°C for device %s, zone %s", temperature, self._device_id, self._zone_id)
+        
+        # Log the temperature change for activity widget
+        self._log_state_change("temperature changed", f"{old_temperature}°C" if old_temperature else "unknown", f"{temperature}°C")
 
         device = device_data.get("device")
         
@@ -478,6 +522,12 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
         device_data = self.coordinator.data.get(self._device_id)
         if not device_data or not device_data.get("device"):
             return
+
+        # Get current preset mode for activity logging
+        old_preset_mode = self.preset_mode
+        
+        # Log the preset mode change for activity widget
+        self._log_state_change("preset mode changed", old_preset_mode, preset_mode)
 
         device = device_data["device"]
 

@@ -14,6 +14,7 @@ from homeassistant.const import UnitOfTemperature, UnitOfPressure, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from . import AquareaDataUpdateCoordinator
 from .const import DOMAIN
@@ -156,6 +157,74 @@ class AquareaSensorBase(CoordinatorEntity, SensorEntity):
             
         self._attr_name = f"{device_name} {sensor_type}"
         self._attr_unique_id = f"{device_id}_{sensor_type.lower().replace(' ', '_')}"
+        self._last_logged_value = None
+
+    def _should_log_change(self, new_value: Any, old_value: Any) -> bool:
+        """Determine if a sensor value change should be logged to activity."""
+        if old_value is None or new_value is None:
+            return False
+            
+        # For temperature sensors, log changes >= 1 degree
+        if "temperature" in self._sensor_type.lower():
+            try:
+                old_float = float(old_value)
+                new_float = float(new_value)
+                return abs(new_float - old_float) >= 1.0
+            except (ValueError, TypeError):
+                return False
+        
+        # For pressure sensors, log changes >= 0.5 bar
+        if "pressure" in self._sensor_type.lower():
+            try:
+                old_float = float(old_value)
+                new_float = float(new_value)
+                return abs(new_float - old_float) >= 0.5
+            except (ValueError, TypeError):
+                return False
+                
+        # For percentage sensors, log changes >= 10%
+        if "duty" in self._sensor_type.lower() or "percentage" in self._sensor_type.lower():
+            try:
+                old_float = float(old_value)
+                new_float = float(new_value)
+                return abs(new_float - old_float) >= 10.0
+            except (ValueError, TypeError):
+                return False
+        
+        # For operation status, log all changes
+        if "operation" in self._sensor_type.lower() or "status" in self._sensor_type.lower():
+            return str(old_value) != str(new_value)
+            
+        return False
+
+    def _log_sensor_change(self, old_value: Any, new_value: Any) -> None:
+        """Log significant sensor value changes for the Activity widget."""
+        try:
+            if self._should_log_change(new_value, old_value):
+                # Log with INFO level to ensure it appears in Home Assistant activity
+                _LOGGER.info("%s changed from %s to %s for device %s", 
+                           self._sensor_type, old_value, new_value, self._device_id)
+                
+                # Fire a custom event for the activity widget
+                if self.hass:
+                    self.hass.bus.async_fire(
+                        "panasonic_aquarea_action",
+                        {
+                            "entity_id": self.entity_id,
+                            "device_id": self._device_id,
+                            "sensor_type": self._sensor_type,
+                            "action": "value changed",
+                            "old_value": old_value,
+                            "new_value": new_value,
+                            "timestamp": dt_util.utcnow().isoformat(),
+                            "device_type": "sensor"
+                        }
+                    )
+                
+                # Update last logged value
+                self._last_logged_value = new_value
+        except Exception as err:
+            _LOGGER.debug("Failed to log sensor change: %s", err)
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -204,6 +273,7 @@ class AquareaTemperatureSensor(AquareaSensorBase):
             return None
             
         device = device_data["device"]
+        current_value = None
         
         # Try to get temperature from structured device.status first
         if hasattr(device, 'status') and device.status:
@@ -212,19 +282,29 @@ class AquareaTemperatureSensor(AquareaSensorBase):
                     if zone.zone_id == self._zone_id:
                         temp = getattr(zone, 'temperature', None)
                         if temp is not None:
-                            return temp
+                            current_value = temp
+                            break
         
         # Try to get temperature from raw data as fallback
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
-            for zone_status in raw_data['status']['zoneStatus']:
-                if zone_status.get('zoneId') == self._zone_id:
-                    temp_now = zone_status.get('temperatureNow')
-                    if temp_now is not None:
-                        # Convert from tenths of degrees to degrees
-                        return float(temp_now) / 10.0
+        if current_value is None:
+            raw_data = device_data.get("raw_data")
+            if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+                for zone_status in raw_data['status']['zoneStatus']:
+                    if zone_status.get('zoneId') == self._zone_id:
+                        temp_now = zone_status.get('temperatureNow')
+                        if temp_now is not None:
+                            # Convert from tenths of degrees to degrees
+                            current_value = float(temp_now) / 10.0
+                            break
         
-        return None
+        # Log significant changes for activity widget
+        if current_value is not None:
+            old_value = getattr(self, '_last_value', None)
+            if old_value != current_value:
+                self._log_sensor_change(old_value, current_value)
+                self._last_value = current_value
+        
+        return current_value
 
 
 class AquareaTankTemperatureSensor(AquareaSensorBase):

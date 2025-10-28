@@ -13,9 +13,10 @@ from homeassistant.components.water_heater import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from aioaquarea.data import OperationStatus
 
@@ -224,7 +225,13 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
         if not device_data:
             return
 
+        # Get current temperature for activity logging
+        old_temperature = self.target_temperature
+        
         _LOGGER.info("Setting water heater target temperature to %s°C for device %s", temperature, self._device_id)
+        
+        # Log the temperature change for activity widget
+        self._log_state_change("temperature changed", f"{old_temperature}°C" if old_temperature else "unknown", f"{temperature}°C")
 
         device = device_data.get("device")
         
@@ -293,6 +300,9 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             return
 
         _LOGGER.info("Turning on water heater for device %s", self._device_id)
+        
+        # Log the state change for activity widget
+        self._log_state_change("turned on", "OFF", "ON")
 
         device = device_data.get("device")
         
@@ -362,6 +372,9 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
             return
 
         _LOGGER.info("Turning off water heater for device %s", self._device_id)
+        
+        # Log the state change for activity widget
+        self._log_state_change("turned off", "ON", "OFF")
 
         device = device_data.get("device")
         
@@ -469,9 +482,38 @@ class AquareaWaterHeater(CoordinatorEntity, WaterHeaterEntity):
 
         # TODO: When aioaquarea library supports it, replace with real API calls
 
+    def _log_state_change(self, action: str, old_value: Any = None, new_value: Any = None) -> None:
+        """Log state changes for the Activity widget."""
+        try:
+            # Create a detailed log message for the activity widget
+            if old_value is not None and new_value is not None:
+                message = f"Water heater {action}: {old_value} → {new_value}"
+            else:
+                message = f"Water heater {action}"
+            
+            # Log with INFO level to ensure it appears in Home Assistant logs and activity
+            _LOGGER.info("%s for device %s", message, self._device_id)
+            
+            # Fire a custom event for the activity widget
+            if self.hass:
+                self.hass.bus.async_fire(
+                    "panasonic_aquarea_action",
+                    {
+                        "entity_id": self.entity_id,
+                        "device_id": self._device_id,
+                        "action": action,
+                        "old_value": old_value,
+                        "new_value": new_value,
+                        "timestamp": dt_util.utcnow().isoformat(),
+                        "device_type": "water_heater"
+                    }
+                )
+        except Exception as err:
+            _LOGGER.debug("Failed to log state change: %s", err)
+
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return additional state attributes for Cloud Comfort app DHW features."""
+        """Return additional state attributes for Cloud Comfort app features."""
         device_data = self.coordinator.data.get(self._device_id)
         if not device_data:
             return None
