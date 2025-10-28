@@ -41,32 +41,47 @@ async def async_setup_entry(
     """Set up the climate platform."""
     coordinator: AquareaDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     
+    _LOGGER.info("Setting up climate platform. Coordinator data: %s", coordinator.data)
+    
     entities = []
     for device_id, device_data in coordinator.data.items():
+        _LOGGER.info("Processing device %s with data: %s", device_id, device_data)
+        
         device_info = device_data.get("info")
         raw_data = device_data.get("raw_data")
+        
+        _LOGGER.info("Device info: %s", device_info)
+        _LOGGER.info("Raw data: %s", raw_data)
         
         # Try to get zones from device_info first
         zones = []
         if device_info and hasattr(device_info, 'zones'):
+            _LOGGER.info("Found zones in device_info: %s", device_info.zones)
             zones = device_info.zones
         # Fallback to raw data if available
         elif raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            _LOGGER.info("Using zones from raw data: %s", raw_data['status']['zoneStatus'])
             for zone_status in raw_data['status']['zoneStatus']:
                 # Create a simple zone object from raw data
                 zones.append({
                     'zone_id': zone_status.get('zoneId', 1),
                     'name': zone_status.get('zoneName', f"Zone {zone_status.get('zoneId', 1)}")
                 })
+        else:
+            _LOGGER.warning("No zone data found for device %s", device_id)
+        
+        _LOGGER.info("Processed zones: %s", zones)
         
         for zone in zones:
             zone_id = getattr(zone, 'zone_id', None) or zone.get('zone_id')
             zone_name = getattr(zone, 'name', None) or zone.get('name')
+            _LOGGER.info("Creating climate entity for zone %s (%s)", zone_id, zone_name)
             if zone_id and zone_name:
-                entities.append(
-                    AquareaClimate(coordinator, device_id, zone_id, zone_name)
-                )
+                entity = AquareaClimate(coordinator, device_id, zone_id, zone_name)
+                entities.append(entity)
+                _LOGGER.info("Added climate entity: %s", entity)
     
+    _LOGGER.info("Adding %d climate entities: %s", len(entities), entities)
     async_add_entities(entities)
 
 
@@ -143,33 +158,48 @@ class AquareaClimate(CoordinatorEntity, ClimateEntity):
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
+        _LOGGER.info("Getting current temperature for device %s, zone %s", self._device_id, self._zone_id)
+        
         device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            _LOGGER.debug("No device data for %s", self._device_id)
+        if not device_data:
+            _LOGGER.warning("No device data found for device %s", self._device_id)
             return None
             
-        device = device_data["device"]
+        _LOGGER.info("Device data keys: %s", device_data.keys())
+        device = device_data.get("device")
         
         # Try to get temperature from structured device.status first
-        if hasattr(device, 'status') and device.status:
+        if device and hasattr(device, 'status') and device.status:
+            _LOGGER.info("Device has status, checking zones...")
             if hasattr(device.status, 'zones'):
+                _LOGGER.info("Device status has zones: %s", device.status.zones)
                 for zone in device.status.zones:
                     if zone.zone_id == self._zone_id:
                         temp = getattr(zone, 'temperature', None)
+                        _LOGGER.info("Found temperature in structured data: %s", temp)
                         if temp is not None:
                             return temp
+            else:
+                _LOGGER.info("Device status has no zones attribute")
+        else:
+            _LOGGER.info("Device has no status or device is None")
         
         # Try to get temperature from raw data as fallback
         raw_data = device_data.get("raw_data")
+        _LOGGER.info("Raw data available: %s", raw_data is not None)
         if raw_data and 'status' in raw_data and 'zoneStatus' in raw_data['status']:
+            _LOGGER.info("Found zoneStatus in raw data: %s", raw_data['status']['zoneStatus'])
             for zone_status in raw_data['status']['zoneStatus']:
                 if zone_status.get('zoneId') == self._zone_id:
                     temp_now = zone_status.get('temperatureNow')
+                    _LOGGER.info("Found temperatureNow in raw data: %s", temp_now)
                     if temp_now is not None:
                         # Convert from tenths of degrees to degrees
-                        return float(temp_now) / 10.0
+                        result = float(temp_now) / 10.0
+                        _LOGGER.info("Converted temperature: %s", result)
+                        return result
         
-        _LOGGER.debug("No temperature data found for zone %s", self._zone_id)
+        _LOGGER.warning("No temperature data found for zone %s", self._zone_id)
         return None
 
     @property

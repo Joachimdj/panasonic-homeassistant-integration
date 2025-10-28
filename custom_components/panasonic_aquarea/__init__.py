@@ -23,6 +23,8 @@ PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_H
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Panasonic Aquarea from a config entry."""
+    _LOGGER.info("Setting up Panasonic Aquarea integration with entry: %s", entry.data)
+    
     session = async_get_clientsession(hass)
     
     client = Client(
@@ -34,13 +36,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         environment=AquareaEnvironment.PRODUCTION,
     )
 
+    _LOGGER.info("Created client, initializing coordinator...")
     coordinator = AquareaDataUpdateCoordinator(hass, client)
+    
+    _LOGGER.info("Performing first refresh...")
     await coordinator.async_config_entry_first_refresh()
+    
+    _LOGGER.info("Coordinator data after first refresh: %s", coordinator.data)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
+    _LOGGER.info("Setting up platforms: %s", PLATFORMS)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    _LOGGER.info("Panasonic Aquarea integration setup completed successfully")
     return True
 
 
@@ -77,27 +86,54 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                     await device.refresh_data()
                     
                     # Debug logging to understand data structure
-                    _LOGGER.debug("Device info: %s", device_info)
-                    _LOGGER.debug("Device: %s", device)
+                    _LOGGER.info("Device info object: %s", device_info)
+                    _LOGGER.info("Device info attributes: %s", dir(device_info))
+                    _LOGGER.info("Device object: %s", device)
+                    _LOGGER.info("Device attributes: %s", dir(device))
                     
                     # Try to get raw data if available
                     raw_data = None
-                    if hasattr(device, 'raw_data'):
-                        raw_data = device.raw_data
-                    elif hasattr(device, '_raw_data'):
-                        raw_data = device._raw_data
-                    elif hasattr(device, 'data'):
-                        raw_data = device.data
-                        
-                    if raw_data:
-                        _LOGGER.info("Raw device data found: %s", raw_data)
+                    possible_attrs = ['raw_data', '_raw_data', 'data', '_data', 'status_data', '_status_data']
                     
-                    devices_data[device_info.device_id] = {
+                    for attr in possible_attrs:
+                        if hasattr(device, attr):
+                            raw_data = getattr(device, attr)
+                            _LOGGER.info("Found raw data in device.%s: %s", attr, raw_data)
+                            break
+                    
+                    # Also try to get it from device_info
+                    if not raw_data:
+                        for attr in possible_attrs:
+                            if hasattr(device_info, attr):
+                                raw_data = getattr(device_info, attr)
+                                _LOGGER.info("Found raw data in device_info.%s: %s", attr, raw_data)
+                                break
+                    
+                    # Log what we have available
+                    _LOGGER.info("Device info vars: %s", vars(device_info) if hasattr(device_info, '__dict__') else "No __dict__")
+                    _LOGGER.info("Device vars: %s", vars(device) if hasattr(device, '__dict__') else "No __dict__")
+                    
+                    if hasattr(device, 'status'):
+                        _LOGGER.info("Device status: %s", device.status)
+                        if device.status:
+                            _LOGGER.info("Device status attributes: %s", dir(device.status))
+                            _LOGGER.info("Device status vars: %s", vars(device.status) if hasattr(device.status, '__dict__') else "No __dict__")
+                    
+                    # Create a more comprehensive device data structure
+                    device_entry = {
                         "info": device_info,
                         "device": device,
                         "status": device.status if hasattr(device, 'status') else None,
                         "raw_data": raw_data,
                     }
+                    
+                    # If we have the raw JSON structure from logs, try to construct it
+                    # This is a fallback for when the library doesn't expose the data properly
+                    if not raw_data and hasattr(device, '_last_response'):
+                        device_entry["raw_data"] = device._last_response
+                    
+                    devices_data[device_info.device_id] = device_entry
+                    _LOGGER.info("Stored device data for %s: %s", device_info.device_id, device_entry)
                 except Exception as err:
                     _LOGGER.warning(
                         "Failed to update device %s: %s", device_info.device_id, err
