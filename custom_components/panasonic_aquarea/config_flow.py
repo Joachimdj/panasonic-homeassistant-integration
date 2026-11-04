@@ -15,7 +15,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from aioaquarea import Client, AquareaEnvironment
 from aioaquarea.errors import AuthenticationError, ClientError
 
-from .const import DOMAIN
+from homeassistant.core import callback
+
+from .const import (
+    CONF_SCAN_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL,
+    DOMAIN,
+    MIN_UPDATE_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +38,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Panasonic Aquarea."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Return the options flow (poll interval)."""
+        return OptionsFlow(config_entry)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -53,6 +66,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+
+class OptionsFlow(config_entries.OptionsFlow):
+    """Let the user choose how often the cloud API is polled."""
+
+    def __init__(self, config_entry) -> None:
+        self._entry = config_entry
+
+    async def async_step_init(self, user_input=None) -> FlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        current = self._entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SCAN_INTERVAL, default=current): vol.All(
+                        vol.Coerce(int), vol.Range(min=MIN_UPDATE_INTERVAL, max=3600)
+                    )
+                }
+            ),
         )
 
 
