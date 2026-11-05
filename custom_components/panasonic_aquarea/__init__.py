@@ -1,28 +1,31 @@
 """The Panasonic Aquarea integration."""
 from __future__ import annotations
 
-import ast
 import logging
-import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from aioaquarea import Client, AquareaEnvironment
 from aioaquarea.errors import AuthenticationError, ClientError
 
+from .controls import FEATURES, async_command
+from .status import fetch_status_json, fetch_today_consumption, parse_status
 from .const import (
     DOMAIN, 
     CONF_SCAN_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
     MAX_BACKOFF,
+    CONSUMPTION_INTERVAL,
     REFRESH_DEBOUNCE,
     SERVICE_SET_ECO_MODE,
     SERVICE_SET_COMFORT_MODE,
@@ -35,44 +38,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Global storage for captured JSON responses
-_captured_json_responses = {}
-
-class AquareaLogCapture(logging.Handler):
-    """Custom log handler to capture JSON responses from aioaquarea logs."""
-    
-    def emit(self, record):
-        """Capture JSON data from log messages."""
-        try:
-            message = record.getMessage()
-            # Look for the pattern "Raw JSON response for device <device_id>: <json_data>"
-            if "Raw JSON response for device" in message:
-                # Extract device ID and JSON data
-                match = re.search(r"Raw JSON response for device ([A-Z0-9]+): ({.+})", message)
-                if match:
-                    device_id = match.group(1)
-                    json_str = match.group(2)
-                    try:
-                        # Parse the JSON string
-                        json_data = ast.literal_eval(json_str)
-                        _captured_json_responses[device_id] = json_data
-                        _LOGGER.debug("Captured JSON response for device %s", device_id)
-                    except Exception as e:
-                        _LOGGER.debug("Failed to parse captured JSON for device %s: %s", device_id, e)
-        except Exception as e:
-            # Don't let handler errors break the logging system
-            pass
-
-# Set up the log capture handler
-_log_capture_handler = AquareaLogCapture()
-_log_capture_handler.setLevel(logging.DEBUG)
-# Add handler to aioaquarea logger
-aioaquarea_logger = logging.getLogger('aioaquarea')
-aioaquarea_logger.addHandler(_log_capture_handler)
-if not aioaquarea_logger.isEnabledFor(logging.INFO):
-    aioaquarea_logger.setLevel(logging.INFO)  # raw payload is logged at INFO
-
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_HEATER, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.CLIMATE,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.WATER_HEATER,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -221,182 +193,78 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-async def _async_register_services(hass: HomeAssistant, coordinator: AquareaDataUpdateCoordinator) -> None:
-    """Register custom services for advanced heat pump controls."""
-    
-    async def async_set_eco_mode(call) -> None:
-        """Handle eco mode service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        
-        for entity_id in entity_ids:
-            # Find the climate entity and call its eco mode method
-            state = hass.states.get(entity_id)
-            if state and state.domain == "climate":
-                # Get the device_id from entity_id
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_eco_mode'):
-                        try:
-                            await device.set_eco_mode(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set eco mode: %s", err)
-
-    async def async_set_comfort_mode(call) -> None:
-        """Handle comfort mode service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state and state.domain == "climate":
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_comfort_mode'):
-                        try:
-                            await device.set_comfort_mode(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set comfort mode: %s", err)
-
-    async def async_set_quiet_mode(call) -> None:
-        """Handle quiet mode service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state and state.domain == "climate":
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_quiet_mode'):
-                        try:
-                            await device.set_quiet_mode(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set quiet mode: %s", err)
-
-    async def async_set_powerful_mode(call) -> None:
-        """Handle powerful mode service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state and state.domain == "climate":
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_powerful_mode'):
-                        try:
-                            await device.set_powerful_mode(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set powerful mode: %s", err)
-
-    async def async_force_dhw(call) -> None:
-        """Handle force DHW service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state and state.domain == "water_heater":
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_force_dhw'):
-                        try:
-                            await device.set_force_dhw(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set force DHW: %s", err)
-
-    async def async_force_heater(call) -> None:
-        """Handle force heater service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state and state.domain == "climate":
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_force_heater'):
-                        try:
-                            await device.set_force_heater(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set force heater: %s", err)
-
-    async def async_set_holiday_mode(call) -> None:
-        """Handle holiday mode service call."""
-        entity_ids = call.data.get("entity_id", [])
-        enabled = call.data.get("enabled", True)
-        duration_days = call.data.get("duration_days")
-        
-        for entity_id in entity_ids:
-            state = hass.states.get(entity_id)
-            if state and state.domain == "climate":
-                device_id = _extract_device_id_from_entity_id(entity_id)
-                if device_id and device_id in coordinator.data:
-                    device_data = coordinator.data[device_id]
-                    device = device_data.get("device")
-                    if device and hasattr(device, 'set_holiday_mode'):
-                        try:
-                            if duration_days:
-                                await device.set_holiday_mode(enabled, duration_days)
-                            else:
-                                await device.set_holiday_mode(enabled)
-                            await coordinator.async_request_refresh()
-                        except Exception as err:
-                            _LOGGER.error("Failed to set holiday mode: %s", err)
-
-    # Register services
-    hass.services.async_register(DOMAIN, SERVICE_SET_ECO_MODE, async_set_eco_mode)
-    hass.services.async_register(DOMAIN, SERVICE_SET_COMFORT_MODE, async_set_comfort_mode)
-    hass.services.async_register(DOMAIN, SERVICE_SET_QUIET_MODE, async_set_quiet_mode)
-    hass.services.async_register(DOMAIN, SERVICE_SET_POWERFUL_MODE, async_set_powerful_mode)
-    hass.services.async_register(DOMAIN, SERVICE_FORCE_DHW, async_force_dhw)
-    hass.services.async_register(DOMAIN, SERVICE_FORCE_HEATER, async_force_heater)
-    hass.services.async_register(DOMAIN, SERVICE_SET_HOLIDAY_MODE, async_set_holiday_mode)
+SERVICE_FEATURES = {
+    SERVICE_SET_ECO_MODE: "eco",
+    SERVICE_SET_COMFORT_MODE: "comfort",
+    SERVICE_SET_QUIET_MODE: "quiet",
+    SERVICE_SET_POWERFUL_MODE: "powerful",
+    SERVICE_FORCE_DHW: "force_dhw",
+    SERVICE_FORCE_HEATER: "force_heater",
+    SERVICE_SET_HOLIDAY_MODE: "holiday",
+}
 
 
-def _extract_device_id_from_entity_id(entity_id: str) -> str | None:
-    """Extract device ID from entity ID."""
-    # Assumes entity_id format like "climate.devicename_zone_1" 
-    # and unique_id format like "deviceid_zone_1"
-    parts = entity_id.split(".")
-    if len(parts) >= 2:
-        # Remove domain prefix and try to extract device part
-        entity_part = parts[1]
-        # This is a simplified extraction - in reality you might need
-        # to match against actual entity unique_ids to get device_id
-        if "_zone_" in entity_part:
-            return entity_part.split("_zone_")[0]
-        elif "_water_heater" in entity_part:
-            return entity_part.replace("_water_heater", "")
+def _device_for_entity(hass: HomeAssistant, coordinator, entity_id: str):
+    """Resolve an entity to its aioaquarea Device through the entity registry."""
+    entry = er.async_get(hass).async_get(entity_id)
+    if entry is None or entry.platform != DOMAIN:
+        return None
+    for device_id, data in (coordinator.data or {}).items():
+        if entry.unique_id.startswith(f"{device_id}_"):
+            return data.get("device")
     return None
+
+
+async def _async_register_services(hass: HomeAssistant, coordinator: AquareaDataUpdateCoordinator) -> None:
+    """Register services; each maps to the same real call the switches use."""
+
+    def _make_handler(feature_key: str):
+        feature = FEATURES[feature_key]
+
+        async def _handler(call) -> None:
+            entity_ids = call.data.get("entity_id", [])
+            if isinstance(entity_ids, str):
+                entity_ids = [entity_ids]
+            enabled = call.data.get("enabled", True)
+            for entity_id in entity_ids:
+                device = _device_for_entity(hass, coordinator, entity_id)
+                if device is None or not feature.supported(device):
+                    raise ServiceValidationError(
+                        f"{entity_id} does not support {feature.name.lower()}"
+                    )
+                await async_command(
+                    coordinator,
+                    lambda d=device: feature.setter(d, bool(enabled)),
+                    f"set {feature.name.lower()}",
+                )
+
+        return _handler
+
+    for service, feature_key in SERVICE_FEATURES.items():
+        hass.services.async_register(DOMAIN, service, _make_handler(feature_key))
+
+
+def _refresh_zones(device: Any) -> None:
+    """Work around aioaquarea: ``refresh_data()`` never updates zone objects.
+
+    ``Device.zones`` is a *class-level* dict built once from the first status,
+    so zone temperatures/setpoints go stale and are shared between devices.
+    Give each device its own dict and rebuild it from the fresh status.
+    """
+    build = getattr(device, "__build_zones__", None)
+    info = getattr(device, "_info", None)
+    if build is None or info is None:
+        return
+    device._zones = {}
+    build(info.zones)
 
 
 class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
     """Fetch data from the Panasonic cloud with as few requests as possible.
 
-    Request budget: exactly ONE status request per device per poll (the
-    ``Device`` objects are cached and only ``refresh_data()`` is called).
-    Failures back off exponentially, and refreshes triggered after writes are
-    debounced into a single request.
+    Request budget per device: ONE status request per poll, plus one
+    consumption request per CONSUMPTION_INTERVAL. Failures back off
+    exponentially and post-write refreshes are debounced into one request.
     """
 
     def __init__(
@@ -409,7 +277,12 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
         self.client = client
         self._base_interval = timedelta(seconds=scan_interval)
         self._devices: dict[str, Any] = {}  # cached aioaquarea Device objects
+        self._raw: dict[str, dict[str, Any]] = {}  # latest status JSON per gwid
+        self._consumption: dict[str, tuple[datetime, dict[str, float]]] = {}
         self._failures = 0
+        # Route every status read of the library (first fetch and refresh_data)
+        # through our single-request fetcher so the JSON is kept and parsed right.
+        client.get_device_status = self._get_status
         super().__init__(
             hass,
             _LOGGER,
@@ -420,6 +293,12 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                 hass, _LOGGER, cooldown=REFRESH_DEBOUNCE, immediate=False
             ),
         )
+
+    async def _get_status(self, device_info):
+        """Replacement for ``Client.get_device_status``."""
+        raw = await fetch_status_json(self.client, device_info.device_id)
+        self._raw[device_info.device_id] = raw
+        return parse_status(raw, device_info.long_id)
 
     def _set_backoff(self, failed: bool) -> None:
         """Lengthen the poll interval after failures, restore it on success."""
@@ -437,6 +316,21 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
             self._failures = 0
             self.update_interval = self._base_interval
 
+    async def _async_refresh_consumption(self, device_id: str, long_id: str) -> None:
+        """Refresh today's measured kWh at most once per CONSUMPTION_INTERVAL."""
+        now = dt_util.utcnow()
+        last = self._consumption.get(device_id)
+        if last and now - last[0] < CONSUMPTION_INTERVAL:
+            return
+        try:
+            data = await fetch_today_consumption(self.client, long_id, dt_util.now().date())
+        except Exception as err:  # noqa: BLE001 - statistics are optional
+            _LOGGER.debug("Consumption fetch failed for %s: %s", device_id, err)
+            data = None
+        # Record the attempt even on failure so we do not hammer the endpoint.
+        previous = last[1] if last else {}
+        self._consumption[device_id] = (now, data or previous)
+
     async def _async_update_data(self):
         """Fetch one status per device."""
         try:
@@ -453,28 +347,22 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
         for device_info in devices_info:
             device_id = device_info.device_id
             try:
-                _captured_json_responses.pop(device_id, None)
                 device = self._devices.get(device_id)
                 if device is None:
-                    # get_device() already performs the first status request.
+                    # get_device() performs the first status request (via _get_status).
                     device = await self.client.get_device(device_info=device_info)
                     self._devices[device_id] = device
                 else:
                     await device.refresh_data()
+                _refresh_zones(device)
 
-                raw_data = _captured_json_responses.get(device_id)
-                if raw_data is None:
-                    # Never fabricate values: reuse last good data if we have it.
-                    previous = (self.data or {}).get(device_id)
-                    raw_data = previous.get("raw_data") if previous else None
-                    if raw_data is None:
-                        raise UpdateFailed(f"No status payload for {device_id}")
-
+                await self._async_refresh_consumption(device_id, device_info.long_id)
                 devices_data[device_id] = {
                     "info": device_info,
                     "device": device,
                     "status": getattr(device, "status", None),
-                    "raw_data": raw_data,
+                    "raw_data": self._raw[device_id],
+                    "consumption": (self._consumption.get(device_id) or (None, None))[1],
                 }
             except AuthenticationError as err:
                 raise ConfigEntryAuthFailed(str(err)) from err
