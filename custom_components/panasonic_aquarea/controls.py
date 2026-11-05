@@ -20,6 +20,7 @@ from aioaquarea.data import (
     HolidayTimer,
     PowerfulTime,
     QuietMode,
+    SensorMode,
     SpecialStatus,
 )
 from homeassistant.exceptions import HomeAssistantError
@@ -194,3 +195,11 @@ REMOVED_SWITCH_NAMES = ("Schedule Enabled", "DHW Priority", "Legionella Mode", "
 
 def switch_unique_id(device_id: str, name: str) -> str:
     return f"{device_id}_{name.lower().replace(' ', '_')}"
+
+
+def is_offset_zone(zone) -> bool:
+    """True when the zone's setpoint is a heating-curve offset, not a temperature."""
+    return (
+        zone.supports_set_temperature
+        and zone.heat_sensor_mode == SensorMode.COMPENSATION_CURVE
+    )

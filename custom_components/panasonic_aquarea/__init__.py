@@ -1,10 +1,8 @@
 """The Panasonic Aquarea integration."""
 from __future__ import annotations
 
-import ast
 import logging
-import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -15,16 +13,19 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from aioaquarea import Client, AquareaEnvironment
 from aioaquarea.errors import AuthenticationError, ClientError
 
 from .controls import FEATURES, async_command
+from .status import fetch_status_json, fetch_today_consumption, parse_status
 from .const import (
     DOMAIN, 
     CONF_SCAN_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
     MAX_BACKOFF,
+    CONSUMPTION_INTERVAL,
     REFRESH_DEBOUNCE,
     SERVICE_SET_ECO_MODE,
     SERVICE_SET_COMFORT_MODE,
@@ -37,44 +38,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Global storage for captured JSON responses
-_captured_json_responses = {}
-
-class AquareaLogCapture(logging.Handler):
-    """Custom log handler to capture JSON responses from aioaquarea logs."""
-    
-    def emit(self, record):
-        """Capture JSON data from log messages."""
-        try:
-            message = record.getMessage()
-            # Look for the pattern "Raw JSON response for device <device_id>: <json_data>"
-            if "Raw JSON response for device" in message:
-                # Extract device ID and JSON data
-                match = re.search(r"Raw JSON response for device ([A-Z0-9]+): ({.+})", message)
-                if match:
-                    device_id = match.group(1)
-                    json_str = match.group(2)
-                    try:
-                        # Parse the JSON string
-                        json_data = ast.literal_eval(json_str)
-                        _captured_json_responses[device_id] = json_data
-                        _LOGGER.debug("Captured JSON response for device %s", device_id)
-                    except Exception as e:
-                        _LOGGER.debug("Failed to parse captured JSON for device %s: %s", device_id, e)
-        except Exception as e:
-            # Don't let handler errors break the logging system
-            pass
-
-# Set up the log capture handler
-_log_capture_handler = AquareaLogCapture()
-_log_capture_handler.setLevel(logging.DEBUG)
-# Add handler to aioaquarea logger
-aioaquarea_logger = logging.getLogger('aioaquarea')
-aioaquarea_logger.addHandler(_log_capture_handler)
-if not aioaquarea_logger.isEnabledFor(logging.INFO):
-    aioaquarea_logger.setLevel(logging.INFO)  # raw payload is logged at INFO
-
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR, Platform.WATER_HEATER, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.CLIMATE,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.WATER_HEATER,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -292,10 +262,9 @@ def _refresh_zones(device: Any) -> None:
 class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
     """Fetch data from the Panasonic cloud with as few requests as possible.
 
-    Request budget: exactly ONE status request per device per poll (the
-    ``Device`` objects are cached and only ``refresh_data()`` is called).
-    Failures back off exponentially, and refreshes triggered after writes are
-    debounced into a single request.
+    Request budget per device: ONE status request per poll, plus one
+    consumption request per CONSUMPTION_INTERVAL. Failures back off
+    exponentially and post-write refreshes are debounced into one request.
     """
 
     def __init__(
@@ -308,7 +277,12 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
         self.client = client
         self._base_interval = timedelta(seconds=scan_interval)
         self._devices: dict[str, Any] = {}  # cached aioaquarea Device objects
+        self._raw: dict[str, dict[str, Any]] = {}  # latest status JSON per gwid
+        self._consumption: dict[str, tuple[datetime, dict[str, float]]] = {}
         self._failures = 0
+        # Route every status read of the library (first fetch and refresh_data)
+        # through our single-request fetcher so the JSON is kept and parsed right.
+        client.get_device_status = self._get_status
         super().__init__(
             hass,
             _LOGGER,
@@ -319,6 +293,12 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
                 hass, _LOGGER, cooldown=REFRESH_DEBOUNCE, immediate=False
             ),
         )
+
+    async def _get_status(self, device_info):
+        """Replacement for ``Client.get_device_status``."""
+        raw = await fetch_status_json(self.client, device_info.device_id)
+        self._raw[device_info.device_id] = raw
+        return parse_status(raw, device_info.long_id)
 
     def _set_backoff(self, failed: bool) -> None:
         """Lengthen the poll interval after failures, restore it on success."""
@@ -336,6 +316,21 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
             self._failures = 0
             self.update_interval = self._base_interval
 
+    async def _async_refresh_consumption(self, device_id: str, long_id: str) -> None:
+        """Refresh today's measured kWh at most once per CONSUMPTION_INTERVAL."""
+        now = dt_util.utcnow()
+        last = self._consumption.get(device_id)
+        if last and now - last[0] < CONSUMPTION_INTERVAL:
+            return
+        try:
+            data = await fetch_today_consumption(self.client, long_id, dt_util.now().date())
+        except Exception as err:  # noqa: BLE001 - statistics are optional
+            _LOGGER.debug("Consumption fetch failed for %s: %s", device_id, err)
+            data = None
+        # Record the attempt even on failure so we do not hammer the endpoint.
+        previous = last[1] if last else {}
+        self._consumption[device_id] = (now, data or previous)
+
     async def _async_update_data(self):
         """Fetch one status per device."""
         try:
@@ -352,29 +347,22 @@ class AquareaDataUpdateCoordinator(DataUpdateCoordinator):
         for device_info in devices_info:
             device_id = device_info.device_id
             try:
-                _captured_json_responses.pop(device_id, None)
                 device = self._devices.get(device_id)
                 if device is None:
-                    # get_device() already performs the first status request.
+                    # get_device() performs the first status request (via _get_status).
                     device = await self.client.get_device(device_info=device_info)
                     self._devices[device_id] = device
                 else:
                     await device.refresh_data()
                 _refresh_zones(device)
 
-                raw_data = _captured_json_responses.get(device_id)
-                if raw_data is None:
-                    # Never fabricate values: reuse last good data if we have it.
-                    previous = (self.data or {}).get(device_id)
-                    raw_data = previous.get("raw_data") if previous else None
-                    if raw_data is None:
-                        raise UpdateFailed(f"No status payload for {device_id}")
-
+                await self._async_refresh_consumption(device_id, device_info.long_id)
                 devices_data[device_id] = {
                     "info": device_info,
                     "device": device,
                     "status": getattr(device, "status", None),
-                    "raw_data": raw_data,
+                    "raw_data": self._raw[device_id],
+                    "consumption": (self._consumption.get(device_id) or (None, None))[1],
                 }
             except AuthenticationError as err:
                 raise ConfigEntryAuthFailed(str(err)) from err

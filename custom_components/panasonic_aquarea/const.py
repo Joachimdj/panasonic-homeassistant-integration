@@ -11,6 +11,7 @@ CONF_SCAN_INTERVAL = "scan_interval"
 DEFAULT_UPDATE_INTERVAL = 90
 MIN_UPDATE_INTERVAL = 60
 UPDATE_INTERVAL = DEFAULT_UPDATE_INTERVAL  # backwards compatibility
+CONSUMPTION_INTERVAL = timedelta(minutes=60)  # measured kWh statistics
 REFRESH_DEBOUNCE = 15  # seconds; collapses post-write refreshes into one request
 MAX_BACKOFF = timedelta(minutes=15)
 
