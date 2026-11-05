@@ -5,8 +5,14 @@ DOMAIN = "panasonic_aquarea"
 # Configuration
 CONF_DEVICE_DIRECT = "device_direct"
 
-# Update intervals
-UPDATE_INTERVAL = 30  # seconds
+# Update intervals (seconds). Panasonic's cloud API rate-limits aggressively.
+CONF_SCAN_INTERVAL = "scan_interval"
+DEFAULT_UPDATE_INTERVAL = 90
+MIN_UPDATE_INTERVAL = 60
+UPDATE_INTERVAL = DEFAULT_UPDATE_INTERVAL  # backwards compatibility
+REFRESH_DEBOUNCE = 15  # seconds; collapses post-write refreshes into one request
+from datetime import timedelta as _td
+MAX_BACKOFF = _td(minutes=15)
 
 # Device types
 DEVICE_TYPE_HEAT_PUMP = "heat_pump"
