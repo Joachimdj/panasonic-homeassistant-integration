@@ -21,21 +21,7 @@ The Panasonic Aquarea integration now includes comprehensive activity logging fo
 - Mode toggles: "Eco Mode turned on" / "Eco Mode turned off"
 - Cloud Comfort features: "Quiet Mode turned on", "Powerful Mode turned off"
 
-### 📊 **Sensor Value Changes**
-
-**Temperature Sensors:**
-- Significant changes (≥1°C): "House Temperature changed from 19.5°C to 21.2°C"
-- Tank temperature: "Tank Temperature changed from 58°C to 60°C"
-
-**Pressure Sensors:**
-- Significant changes (≥0.5 bar): "Water Pressure changed from 2.0 bar to 2.6 bar"
-
-**Operation Status:**
-- State changes: "Tank Operation Status changed from OFF to ON"
-- System status: "Pump Operation changed from OFF to ON"
-
-**Performance Sensors:**
-- Significant changes (≥10%): "Pump Duty changed from 45% to 65%"
+Sensor changes are **not** logged: they are already in each entity's history, and logging them produced one entry per poll.
 
 ## Implementation Details
 

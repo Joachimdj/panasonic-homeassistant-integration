@@ -36,7 +36,7 @@ async def main():
     check("min/max from zone", (c.min_temp, c.max_temp) == (-5.0, 5.0), (c.min_temp, c.max_temp))
     check("hvac_modes no cool without cooling", c.hvac_modes == [HVACMode.OFF, HVACMode.HEAT])
     check("preset comfort", c.preset_mode == "comfort", c.preset_mode)
-    check("setpoint type compensation", c.extra_state_attributes["setpoint_type"] == "compensation")
+    check("setpoint type direct", c.extra_state_attributes["setpoint_type"] == "direct")
     check("hvac_action idle/heating", c.hvac_action in (HVACAction.HEATING, HVACAction.IDLE))
 
     # --- climate writes ---

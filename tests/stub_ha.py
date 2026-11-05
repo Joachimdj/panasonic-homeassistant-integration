@@ -30,10 +30,18 @@ mod("homeassistant"); mod("homeassistant.components")
 mod("homeassistant.components.climate", ClimateEntity=Ent, ClimateEntityFeature=Flag, HVACAction=HVACAction, HVACMode=HVACMode)
 mod("homeassistant.components.switch", SwitchEntity=Ent)
 mod("homeassistant.components.water_heater", STATE_HEAT_PUMP="heat_pump", STATE_PERFORMANCE="performance", WaterHeaterEntity=Ent, WaterHeaterEntityFeature=Flag)
-class P(enum.Enum): CLIMATE=1; SENSOR=2; WATER_HEATER=3; SWITCH=4
+class P(enum.Enum): CLIMATE=1; SENSOR=2; WATER_HEATER=3; SWITCH=4; NUMBER=5
 mod("homeassistant.config_entries", ConfigEntry=object)
 class UoT: CELSIUS = "C"
-mod("homeassistant.const", CONF_PASSWORD="p", CONF_USERNAME="u", Platform=P, ATTR_TEMPERATURE="temperature", STATE_OFF="off", UnitOfTemperature=UoT)
+class EC(Str): DIAGNOSTIC = "diagnostic"
+class UoE: KILO_WATT_HOUR = "kWh"
+class UoP: BAR = "bar"
+mod("homeassistant.const", CONF_PASSWORD="p", CONF_USERNAME="u", Platform=P, ATTR_TEMPERATURE="temperature", STATE_OFF="off", UnitOfTemperature=UoT, EntityCategory=EC, UnitOfEnergy=UoE, UnitOfPressure=UoP)
+class SDC(Str): TEMPERATURE="temperature"; ENERGY="energy"; PRESSURE="pressure"
+class SSC(Str): MEASUREMENT="measurement"; TOTAL_INCREASING="total_increasing"
+class NM(Str): BOX="box"
+mod("homeassistant.components.sensor", SensorEntity=Ent, SensorDeviceClass=SDC, SensorStateClass=SSC)
+mod("homeassistant.components.number", NumberEntity=Ent, NumberMode=NM)
 mod("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 mod("homeassistant.exceptions", ConfigEntryAuthFailed=CAF, ServiceValidationError=SVE, HomeAssistantError=HAError)
 mod("homeassistant.helpers"); mod("homeassistant.helpers.entity_registry")
@@ -42,7 +50,8 @@ mod("homeassistant.helpers.aiohttp_client", async_get_clientsession=None)
 mod("homeassistant.helpers.update_coordinator", DataUpdateCoordinator=DUC, UpdateFailed=UF, CoordinatorEntity=CoordinatorEntity)
 mod("homeassistant.helpers.debounce", Debouncer=lambda *a, **k: None)
 sys.modules["homeassistant.helpers"].entity_registry = sys.modules["homeassistant.helpers.entity_registry"]
-mod("homeassistant.util"); mod("homeassistant.util.dt", utcnow=lambda: __import__("datetime").datetime.utcnow())
+import datetime as _dt
+mod("homeassistant.util"); mod("homeassistant.util.dt", utcnow=lambda: _dt.datetime.now(_dt.timezone.utc), now=lambda: _dt.datetime.now())
 sys.modules["homeassistant"].util = sys.modules["homeassistant.util"]
 import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -67,7 +76,7 @@ def make_status(zone_temp=49, zone_set=5, op=OperationStatus.ON, mode=ExtendedOp
         powerful_time=PowerfulTime.OFF, special_status=special)
 
 def make_device(client, status=None):
-    zinfo = DeviceZoneInfo(1, "House", ZoneType.ZONE1 if hasattr(ZoneType,'ZONE1') else list(ZoneType)[0], False, ZoneSensor.INTERNAL, SensorMode.COMPENSATION_CURVE, None)
+    zinfo = DeviceZoneInfo(1, "House", ZoneType.ZONE1 if hasattr(ZoneType,'ZONE1') else list(ZoneType)[0], False, ZoneSensor.INTERNAL, SensorMode.DIRECT, None)
     st = status or make_status()
     client.status = st
     return DeviceImpl("B1", "L", "My Heat Pump", "fw", "model", True, [zinfo], st, client)

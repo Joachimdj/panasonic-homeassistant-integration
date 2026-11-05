@@ -26,7 +26,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AquareaDataUpdateCoordinator
 from .const import COMFORT_COMFORT, COMFORT_ECO, COMFORT_NORMAL, DOMAIN
-from .controls import AquareaEntity, async_command
+from .controls import AquareaEntity, async_command, is_offset_zone
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class AquareaClimate(AquareaEntity, ClimateEntity):
     def supported_features(self) -> ClimateEntityFeature:
         features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
         zone, device = self.zone, self.device
-        if zone is not None and zone.supports_set_temperature:
+        if zone is not None and zone.supports_set_temperature and not is_offset_zone(zone):
             features |= ClimateEntityFeature.TARGET_TEMPERATURE
         if device is not None and device.support_special_status:
             features |= ClimateEntityFeature.PRESET_MODE
@@ -201,6 +201,7 @@ class AquareaClimate(AquareaEntity, ClimateEntity):
             # "compensation" means the target is an offset on the heating curve,
             # not an absolute room/flow temperature.
             "setpoint_type": "compensation" if sensor == SensorMode.COMPENSATION_CURVE else "direct",
+            "offset": self.target_temperature if is_offset_zone(zone) else None,
             "outdoor_temperature": device.temperature_outdoor,
             "quiet_mode": device.quiet_mode.name.lower(),
             "powerful_time": device.powerful_time.name.lower(),
@@ -237,6 +238,8 @@ class AquareaClimate(AquareaEntity, ClimateEntity):
             return
         if not zone.supports_set_temperature:
             raise ServiceValidationError("This zone uses an external sensor; its target cannot be set")
+        if is_offset_zone(zone):
+            raise ServiceValidationError("This zone uses a heating curve; use its Offset number entity")
         if device.mode == ExtendedOperationMode.OFF:
             raise ServiceValidationError("Turn the heat pump on before changing the target")
         value = int(round(float(temperature)))
