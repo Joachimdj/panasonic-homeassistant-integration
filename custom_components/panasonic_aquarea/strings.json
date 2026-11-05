@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Panasonic Comfort Cloud",
+        "description": "Sign in with your Panasonic Smart Cloud account.",
+        "data": { "username": "Email", "password": "Password" }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "Panasonic rejected the saved credentials. Enter your password again.",
+        "data": { "password": "Password" }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the Panasonic cloud, or no heat pump was found.",
+      "invalid_auth": "Invalid email or password.",
+      "unknown": "Unexpected error. See the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling",
+        "description": "Panasonic rate-limits its cloud API. Shorter intervals risk getting your account blocked.",
+        "data": { "scan_interval": "Update interval (seconds, minimum 60)" }
+      }
+    }
+  }
+}

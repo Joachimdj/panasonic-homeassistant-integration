@@ -7,10 +7,10 @@ A custom Home Assistant integration for Panasonic Aquarea heat pumps using the a
 - **Climate Control**: Control heating/cooling modes and temperature settings for each zone
 - **Temperature Monitoring**: Monitor current temperatures for all zones and tank
 - **Water Heater Control**: Control and monitor the hot water tank (if equipped)
-- **Energy Monitoring**: Comprehensive kWh usage tracking with power consumption, daily/total energy, heating/DHW breakdowns, and COP efficiency monitoring
-- **Cloud Comfort Features**: Advanced controls including eco mode, powerful mode, quiet mode, holiday mode, and scheduling
+- **Energy Monitoring**: *Estimated* power and energy (derived from operation mode and pump duty; not measured by the heat pump)
+- **Special modes**: Eco, comfort, quiet, powerful, force heater, holiday and force DHW switches
 - **Activity Integration**: Automatic logging of all changes to Home Assistant's Activity widget
-- **Real-time Updates**: Automatic data refresh every 30 seconds
+- **Polling**: One cloud request per device every 90 seconds by default (configurable under **Configure**, minimum 60 s). Panasonic rate-limits its cloud API, so failures back off automatically up to 15 minutes.
 
 ## Installation
 
@@ -75,17 +75,26 @@ After configuration, the integration will create the following entities for each
 
 ### Water Heater Entities
 
-- `water_heater.{device_name}_water_heater` - Hot water tank control (if equipped)
+- `water_heater.{device_name}_water_heater` - Hot water tank control (if equipped). Operation modes: `off`, `heat_pump`, `performance` (= force DHW).
+
+### Switches
+
+`Eco Mode`, `Comfort Mode`, `Quiet Mode`, `Powerful Mode`, `Force Heater`, `Holiday Mode` and (with a tank) `Force DHW`. Eco and comfort are mutually exclusive presets, also available as climate presets. Quiet turns on level 1, powerful runs for 30 minutes.
+
+### How controls behave
+
+- Commands are sent to the Panasonic cloud and the entity shows the new state after the next (debounced, ~15 s) refresh. Nothing is shown optimistically; if a command fails you get an error in the UI.
+- A zone's target temperature is an absolute value for *Direct* zones and an offset on the heating curve for *Compensation curve* zones. The climate attribute `setpoint_type` tells you which; min/max come from the device.
+- Setting the temperature while the heat pump is off is rejected.
+- The old Schedule, DHW priority, Legionella and Reheat switches were removed: the cloud API library has no calls for them.
 
 ## Example Device: "My Heat Pump"
 
-Based on your device, you would get these entities:
+A single-zone device with a tank gives these entities:
 
 ```yaml
-climate.my_heat_pump_zone_1
-climate.my_heat_pump_zone_2
-sensor.my_heat_pump_zone_1_temperature
-sensor.my_heat_pump_zone_2_temperature
+climate.my_heat_pump_house
+sensor.my_heat_pump_house_temperature
 sensor.my_heat_pump_tank_temperature
 water_heater.my_heat_pump_water_heater
 ```
@@ -156,3 +165,7 @@ automation:
 ## Credits
 
 This integration uses the [aioaquarea](https://github.com/cjaliaga/aioaquarea) library by Carlos J. Aliaga.
+
+## Development
+
+`python tests/test_controls.py` checks every control against the real `aioaquarea` device classes with Home Assistant stubbed out (needs only `pip install aioaquarea`).
