@@ -14,13 +14,13 @@ def test_water_heater_55_degrees():
     """Test setting water heater to 55°C using your real device data."""
     
     print("🌡️ Testing Water Heater Temperature Control: 55°C")
-    print("Using your real device data from B497204181 (Langagervej)")
+    print("Using your real device data from B000000000 (My Heat Pump)")
     print("=" * 65)
     
     # Your current device data (from your latest log)
     device_data = {
         'raw_data': {
-            'a2wName': 'Langagervej',
+            'a2wName': 'My Heat Pump',
             'status': {
                 'tankStatus': {
                     'operationStatus': 1,      # Currently ON
@@ -33,7 +33,7 @@ def test_water_heater_55_degrees():
         }
     }
     
-    device_id = "B497204181"
+    device_id = "B000000000"
     new_temperature = 55  # Target temperature
     
     print(f"📊 Current Status:")
@@ -105,7 +105,7 @@ def simulate_home_assistant_ui():
     print("=" * 50)
     print("Water Heater Card:")
     print("┌─────────────────────────────────┐")
-    print("│ Langagervej Water Heater        │")
+    print("│ My Heat Pump Water Heater        │")
     print("│                                 │")
     print("│ Current: 59°C                   │")
     print("│ Target:  55°C ← UPDATED!        │")  
@@ -121,7 +121,7 @@ def simulate_home_assistant_ui():
 if __name__ == "__main__":
     print("🧪 WATER HEATER TEST: Set Temperature to 55°C")
     print("This simulates exactly what happens when you change the temperature in Home Assistant")
-    print("Using your real device data from Langagervej (B497204181)")
+    print("Using your real device data from My Heat Pump (B000000000)")
     print("=" * 80)
     
     success = test_water_heater_55_degrees()
@@ -137,7 +137,7 @@ if __name__ == "__main__":
         
         print(f"\n🎯 To test this on your real system:")
         print("1. Open Home Assistant")
-        print("2. Find your 'Langagervej Water Heater' entity")
+        print("2. Find your 'My Heat Pump Water Heater' entity")
         print("3. Set temperature to 55°C")
         print("4. You should see immediate change in UI")
         print("5. Check logs for the emoji messages above")

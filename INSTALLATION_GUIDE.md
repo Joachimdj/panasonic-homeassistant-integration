@@ -2,7 +2,7 @@
 
 ## 🎉 **Integration Created Successfully!**
 
-You now have a complete Home Assistant custom integration for your Panasonic Aquarea heat pump "Langagervej"!
+You now have a complete Home Assistant custom integration for your Panasonic Aquarea heat pump "My Heat Pump"!
 
 ---
 
@@ -53,22 +53,22 @@ cd "/Users/joachimdittman/Documents/HASS home/HACS/aioaquarea/homeassistant_inte
 
 ## 🎯 **What You'll Get After Installation**
 
-Based on your device "Langagervej" (B497204181), you'll get these entities:
+Based on your device "My Heat Pump" (B000000000), you'll get these entities:
 
 ### 🌡️ **Climate Control**
 
-- `climate.langagervej_zone_1` - Zone 1 heating/cooling control
-- `climate.langagervej_zone_2` - Zone 2 heating/cooling control
+- `climate.my_heat_pump_zone_1` - Zone 1 heating/cooling control
+- `climate.my_heat_pump_zone_2` - Zone 2 heating/cooling control
 
 ### 📊 **Temperature Sensors**
 
-- `sensor.langagervej_zone_1_temperature` - Zone 1 current temperature
-- `sensor.langagervej_zone_2_temperature` - Zone 2 current temperature
-- `sensor.langagervej_tank_temperature` - Hot water tank temperature
+- `sensor.my_heat_pump_zone_1_temperature` - Zone 1 current temperature
+- `sensor.my_heat_pump_zone_2_temperature` - Zone 2 current temperature
+- `sensor.my_heat_pump_tank_temperature` - Hot water tank temperature
 
 ### 🚿 **Water Heater**
 
-- `water_heater.langagervej_water_heater` - Hot water tank control
+- `water_heater.my_heat_pump_water_heater` - Hot water tank control
 
 ---
 
@@ -132,12 +132,12 @@ automation:
     action:
       - service: climate.set_hvac_mode
         target:
-          entity_id: climate.langagervej_zone_1
+          entity_id: climate.my_heat_pump_zone_1
         data:
           hvac_mode: heat
       - service: climate.set_temperature
         target:
-          entity_id: climate.langagervej_zone_1
+          entity_id: climate.my_heat_pump_zone_1
         data:
           temperature: 22
 ```
@@ -149,21 +149,21 @@ automation:
   - alias: "Low Tank Temperature"
     trigger:
       platform: numeric_state
-      entity_id: sensor.langagervej_tank_temperature
+      entity_id: sensor.my_heat_pump_tank_temperature
       below: 45
     action:
       - service: notify.mobile_app
         data:
-          message: "Hot water tank low: {{ states('sensor.langagervej_tank_temperature') }}°C"
+          message: "Hot water tank low: {{ states('sensor.my_heat_pump_tank_temperature') }}°C"
 ```
 
 ---
 
 ## 🔧 **Current Device Status** (from your test)
 
-Your "Langagervej" device:
+Your "My Heat Pump" device:
 
-- **Device ID**: B497204181
+- **Device ID**: B000000000
 - **Mode**: Dry mode
 - **Zones**: 2 zones (Zone 1: 4°C, Zone 2: inactive)
 - **Tank**: Yes, currently at 60°C

@@ -5,7 +5,7 @@
 real_device_data = {
     'operation': 'FFFFFFFF', 
     'ownerFlg': True, 
-    'a2wName': 'Langagervej',
+    'a2wName': 'My Heat Pump',
     'step2ApplicationStatusFlg': False, 
     'status': {
         'serviceType': 'STD_ADP-TAW1', 

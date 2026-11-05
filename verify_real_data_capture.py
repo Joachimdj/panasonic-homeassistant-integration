@@ -14,7 +14,7 @@ def test_real_log_capture():
     print("=" * 60)
     
     # Your actual log message from Home Assistant
-    real_log_message = "get_device_status (live): Raw JSON response for device B497204181: {'operation': 'FFFFFFFF', 'ownerFlg': True, 'a2wName': 'Langagervej', 'step2ApplicationStatusFlg': False, 'status': {'serviceType': 'STD_ADP-TAW1', 'uncontrollableTaw1Flg': False, 'operationMode': 1, 'coolMode': 1, 'direction': 1, 'quietMode': 0, 'powerful': 0, 'forceDHW': 0, 'forceHeater': 0, 'tank': 1, 'multiOdConnection': 0, 'pumpDuty': 1, 'bivalent': 0, 'bivalentActual': 0, 'waterPressure': 2.28, 'electricAnode': 0, 'deiceStatus': 0, 'specialStatus': 2, 'outdoorNow': 5, 'holidayTimer': 0, 'modelSeriesSelection': 5, 'standAlone': 1, 'controlBox': 0, 'externalHeater': 0, 'zoneStatus': [{'zoneId': 1, 'zoneName': 'House', 'zoneType': 0, 'zoneSensor': 0, 'operationStatus': 1, 'temperatureNow': 51, 'heatMin': -5, 'heatMax': 5, 'coolMin': -5, 'coolMax': 5, 'heatSet': 5, 'coolSet': 0, 'ecoHeat': -5, 'ecoCool': 5, 'comfortHeat': 5, 'comfortCool': -5}], 'tankStatus': {'operationStatus': 1, 'temperatureNow': 59, 'heatMin': 40, 'heatMax': 75, 'heatSet': 60}}}"
+    real_log_message = "get_device_status (live): Raw JSON response for device B000000000: {'operation': 'FFFFFFFF', 'ownerFlg': True, 'a2wName': 'My Heat Pump', 'step2ApplicationStatusFlg': False, 'status': {'serviceType': 'STD_ADP-TAW1', 'uncontrollableTaw1Flg': False, 'operationMode': 1, 'coolMode': 1, 'direction': 1, 'quietMode': 0, 'powerful': 0, 'forceDHW': 0, 'forceHeater': 0, 'tank': 1, 'multiOdConnection': 0, 'pumpDuty': 1, 'bivalent': 0, 'bivalentActual': 0, 'waterPressure': 2.28, 'electricAnode': 0, 'deiceStatus': 0, 'specialStatus': 2, 'outdoorNow': 5, 'holidayTimer': 0, 'modelSeriesSelection': 5, 'standAlone': 1, 'controlBox': 0, 'externalHeater': 0, 'zoneStatus': [{'zoneId': 1, 'zoneName': 'House', 'zoneType': 0, 'zoneSensor': 0, 'operationStatus': 1, 'temperatureNow': 51, 'heatMin': -5, 'heatMax': 5, 'coolMin': -5, 'coolMax': 5, 'heatSet': 5, 'coolSet': 0, 'ecoHeat': -5, 'ecoCool': 5, 'comfortHeat': 5, 'comfortCool': -5}], 'tankStatus': {'operationStatus': 1, 'temperatureNow': 59, 'heatMin': 40, 'heatMax': 75, 'heatSet': 60}}}"
     
     print("📝 Original log message:")
     print(f"   {real_log_message[:100]}...")
@@ -63,10 +63,10 @@ def test_real_log_capture():
             fallback_matches = []
             
             # Check key values
-            if json_data.get('a2wName') == 'Langagervej':
+            if json_data.get('a2wName') == 'My Heat Pump':
                 fallback_matches.append("✅ Device name matches")
             else:
-                fallback_matches.append(f"❌ Device name: expected 'Langagervej', got '{json_data.get('a2wName')}'")
+                fallback_matches.append(f"❌ Device name: expected 'My Heat Pump', got '{json_data.get('a2wName')}'")
             
             if json_data.get('status', {}).get('operationMode') == 1:
                 fallback_matches.append("✅ Operation mode matches (heating)")

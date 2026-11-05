@@ -77,17 +77,17 @@ After configuration, the integration will create the following entities for each
 
 - `water_heater.{device_name}_water_heater` - Hot water tank control (if equipped)
 
-## Example Device: "Langagervej"
+## Example Device: "My Heat Pump"
 
 Based on your device, you would get these entities:
 
 ```yaml
-climate.langagervej_zone_1
-climate.langagervej_zone_2
-sensor.langagervej_zone_1_temperature
-sensor.langagervej_zone_2_temperature
-sensor.langagervej_tank_temperature
-water_heater.langagervej_water_heater
+climate.my_heat_pump_zone_1
+climate.my_heat_pump_zone_2
+sensor.my_heat_pump_zone_1_temperature
+sensor.my_heat_pump_zone_2_temperature
+sensor.my_heat_pump_tank_temperature
+water_heater.my_heat_pump_water_heater
 ```
 
 ## Automation Examples
@@ -103,12 +103,12 @@ automation:
     action:
       - service: climate.set_hvac_mode
         target:
-          entity_id: climate.langagervej_zone_1
+          entity_id: climate.my_heat_pump_zone_1
         data:
           hvac_mode: heat
       - service: climate.set_temperature
         target:
-          entity_id: climate.langagervej_zone_1
+          entity_id: climate.my_heat_pump_zone_1
         data:
           temperature: 22
 ```
@@ -120,12 +120,12 @@ automation:
   - alias: "Low Tank Temperature Alert"
     trigger:
       platform: numeric_state
-      entity_id: sensor.langagervej_tank_temperature
+      entity_id: sensor.my_heat_pump_tank_temperature
       below: 45
     action:
       - service: notify.mobile_app_your_phone
         data:
-          message: "Hot water tank temperature is low: {{ states('sensor.langagervej_tank_temperature') }}°C"
+          message: "Hot water tank temperature is low: {{ states('sensor.my_heat_pump_tank_temperature') }}°C"
 ```
 
 ## Troubleshooting

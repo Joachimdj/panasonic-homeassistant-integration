@@ -46,8 +46,8 @@ Each entity fires custom events when state changes occur:
 ```python
 # Custom event structure
 {
-    "entity_id": "water_heater.langagervej_tank",
-    "device_id": "B497204181",
+    "entity_id": "water_heater.my_heat_pump_tank",
+    "device_id": "B000000000",
     "action": "temperature changed",
     "old_value": "55°C",
     "new_value": "60°C",
@@ -66,7 +66,7 @@ The integration automatically creates logbook entries for all events:
     "name": "Panasonic Aquarea",
     "message": "Water heater target temperature changed from 55°C to 60°C",
     "domain": "panasonic_aquarea",
-    "entity_id": "water_heater.langagervej_tank",
+    "entity_id": "water_heater.my_heat_pump_tank",
     "source": "panasonic_aquarea"
 }
 ```

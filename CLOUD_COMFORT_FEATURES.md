@@ -60,21 +60,21 @@ Version 1.1.0 adds comprehensive support for advanced controls from the Panasoni
 # Set eco mode via automation
 service: panasonic_aquarea.set_eco_mode
 target:
-  entity_id: climate.langagervej_house
+  entity_id: climate.my_heat_pump_house
 data:
   enabled: true
 
 # Force hot water priority
 service: panasonic_aquarea.force_dhw  
 target:
-  entity_id: water_heater.langagervej_water_heater
+  entity_id: water_heater.my_heat_pump_water_heater
 data:
   enabled: true
 
 # Enable holiday mode for 14 days
 service: panasonic_aquarea.set_holiday_mode
 target:
-  entity_id: climate.langagervej_house  
+  entity_id: climate.my_heat_pump_house  
 data:
   enabled: true
   duration_days: 14
@@ -124,10 +124,10 @@ automation:
     action:
       - service: switch.turn_on
         target:
-          entity_id: switch.langagervej_eco_mode
+          entity_id: switch.my_heat_pump_eco_mode
       - service: switch.turn_on
         target:
-          entity_id: switch.langagervej_quiet_mode
+          entity_id: switch.my_heat_pump_quiet_mode
 
   - alias: "Morning Comfort Mode"  
     trigger:
@@ -136,10 +136,10 @@ automation:
     action:
       - service: switch.turn_off
         target:
-          entity_id: switch.langagervej_eco_mode
+          entity_id: switch.my_heat_pump_eco_mode
       - service: switch.turn_on
         target:
-          entity_id: switch.langagervej_comfort_mode
+          entity_id: switch.my_heat_pump_comfort_mode
 ```
 
 **Holiday Mode Activation**:
@@ -149,13 +149,13 @@ script:
     sequence:
       - service: panasonic_aquarea.set_holiday_mode
         target:
-          entity_id: climate.langagervej_house
+          entity_id: climate.my_heat_pump_house
         data:
           enabled: true
           duration_days: {{ states('input_number.holiday_days') | int }}
       - service: switch.turn_on
         target:
-          entity_id: switch.langagervej_eco_mode
+          entity_id: switch.my_heat_pump_eco_mode
 ```
 
 **Smart Hot Water Management**:
@@ -168,11 +168,11 @@ automation:
     action:
       - service: switch.turn_on
         target:
-          entity_id: switch.langagervej_force_dhw
+          entity_id: switch.my_heat_pump_force_dhw
       - delay: "01:00:00"
       - service: switch.turn_off
         target:
-          entity_id: switch.langagervej_force_dhw
+          entity_id: switch.my_heat_pump_force_dhw
 ```
 
 ### Dashboard Cards
@@ -182,12 +182,12 @@ automation:
 type: entities
 title: Heat Pump Controls
 entities:
-  - climate.langagervej_house
-  - switch.langagervej_eco_mode
-  - switch.langagervej_comfort_mode  
-  - switch.langagervej_quiet_mode
-  - switch.langagervej_powerful_mode
-  - sensor.langagervej_outdoor_temperature
+  - climate.my_heat_pump_house
+  - switch.my_heat_pump_eco_mode
+  - switch.my_heat_pump_comfort_mode  
+  - switch.my_heat_pump_quiet_mode
+  - switch.my_heat_pump_powerful_mode
+  - sensor.my_heat_pump_outdoor_temperature
 ```
 
 **Water Heater Management**:
@@ -195,12 +195,12 @@ entities:
 type: entities
 title: Hot Water Controls
 entities:
-  - water_heater.langagervej_water_heater
-  - switch.langagervej_force_dhw
-  - switch.langagervej_dhw_priority
-  - sensor.langagervej_tank_temperature
-  - sensor.langagervej_tank_eco_temperature
-  - sensor.langagervej_tank_comfort_temperature
+  - water_heater.my_heat_pump_water_heater
+  - switch.my_heat_pump_force_dhw
+  - switch.my_heat_pump_dhw_priority
+  - sensor.my_heat_pump_tank_temperature
+  - sensor.my_heat_pump_tank_eco_temperature
+  - sensor.my_heat_pump_tank_comfort_temperature
 ```
 
 ## Technical Details
