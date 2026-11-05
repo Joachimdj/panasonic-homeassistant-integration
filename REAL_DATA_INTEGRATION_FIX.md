@@ -3,13 +3,13 @@
 ## Problem Identified
 The aioaquarea library was logging real JSON response data, but the Home Assistant integration couldn't access it from device objects, resulting in the warning:
 ```
-Could not find JSON response data in device or device_info objects for B497204181
+Could not find JSON response data in device or device_info objects for B000000000
 ```
 
 ## Root Cause
 The aioaquarea library logs the JSON response with a message like:
 ```
-Raw JSON response for device B497204181: {'operation': 'FFFFFFFF', 'ownerFlg': True, ...}
+Raw JSON response for device B000000000: {'operation': 'FFFFFFFF', 'ownerFlg': True, ...}
 ```
 But this data wasn't accessible through the standard device object properties that the integration was checking.
 
@@ -42,7 +42,7 @@ Replaced simulated data with exact real data structure from your device:
 {
   "operation": "FFFFFFFF",
   "ownerFlg": true,
-  "a2wName": "Langagervej",
+  "a2wName": "My Heat Pump",
   "step2ApplicationStatusFlg": false,
   "status": {
     "operationMode": 1,
@@ -58,8 +58,8 @@ Replaced simulated data with exact real data structure from your device:
 
 ### 1. Real Data Access
 - Integration will capture JSON responses when aioaquarea logs them
-- Log message: "Successfully found real JSON data for device B497204181"
-- Or: "Using captured JSON response for device B497204181"
+- Log message: "Successfully found real JSON data for device B000000000"
+- Or: "Using captured JSON response for device B000000000"
 
 ### 2. Accurate Energy Monitoring
 Based on real operating conditions (7°C outdoor, heating mode, pump active):
@@ -92,8 +92,8 @@ Based on real operating conditions (7°C outdoor, heating mode, pump active):
 1. **Restart Home Assistant** to load the enhanced integration
 2. **Check logs** for these messages:
    ```
-   Successfully found real JSON data for device B497204181
-   Available device attributes for B497204181: [list of attributes]
+   Successfully found real JSON data for device B000000000
+   Available device attributes for B000000000: [list of attributes]
    ```
 3. **Energy sensors** should show realistic values:
    - Power consumption: 2500-4000W during heating
@@ -107,10 +107,10 @@ Based on real operating conditions (7°C outdoor, heating mode, pump active):
 ## Debugging Information
 
 If issues persist, check for these debug messages:
-- `Called device.refresh() for B497204181`
-- `Available device attributes for B497204181: [...]`
+- `Called device.refresh() for B000000000`
+- `Available device attributes for B000000000: [...]`
 - `Device._last_response = ... (type: ...)`
-- `Captured JSON response for device B497204181`
+- `Captured JSON response for device B000000000`
 
 The integration now has multiple layers of data access:
 1. **Primary**: Captured JSON from aioaquarea logs (most accurate)

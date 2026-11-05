@@ -7,7 +7,7 @@ Based on your Home Assistant log from **2025-10-28 19:43:36**, the integration i
 ## 📊 **Your Current Heat Pump Status** (Real Data)
 
 ### **🌡️ System Overview**
-- **Device**: Langagervej (B497204181)
+- **Device**: My Heat Pump (B000000000)
 - **Mode**: Heating (operationMode: 1) 
 - **Outdoor Temperature**: 5°C
 - **Water Pressure**: 2.28 bar
@@ -37,7 +37,7 @@ Based on your Home Assistant log from **2025-10-28 19:43:36**, the integration i
 
 ### **✅ Real Data Capture**
 - **Log Handler**: Successfully captures aioaquarea JSON responses
-- **Device ID**: B497204181 ✅ Detected
+- **Device ID**: B000000000 ✅ Detected
 - **JSON Parsing**: ✅ Working perfectly
 - **Data Structure**: ✅ Matches expected format
 

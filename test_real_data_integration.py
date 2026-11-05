@@ -34,7 +34,7 @@ def test_log_capture():
             return self.message
     
     # Test with your real data
-    real_log_message = "Raw JSON response for device B497204181: {'operation': 'FFFFFFFF', 'ownerFlg': True, 'a2wName': 'Langagervej', 'step2ApplicationStatusFlg': False, 'status': {'serviceType': 'STD_ADP-TAW1', 'uncontrollableTaw1Flg': False, 'operationMode': 1, 'coolMode': 1, 'direction': 2, 'quietMode': 0, 'powerful': 0, 'forceDHW': 0, 'forceHeater': 0, 'tank': 1, 'multiOdConnection': 0, 'pumpDuty': 1, 'bivalent': 0, 'bivalentActual': 0, 'waterPressure': 2.18, 'electricAnode': 0, 'deiceStatus': 0, 'specialStatus': 2, 'outdoorNow': 7, 'holidayTimer': 0, 'modelSeriesSelection': 5, 'standAlone': 1, 'controlBox': 0, 'externalHeater': 0, 'zoneStatus': [{'zoneId': 1, 'zoneName': 'House', 'zoneType': 0, 'zoneSensor': 0, 'operationStatus': 1, 'temperatureNow': 49, 'heatMin': -5, 'heatMax': 5, 'coolMin': -5, 'coolMax': 5, 'heatSet': 5, 'coolSet': 0, 'ecoHeat': -5, 'ecoCool': 5, 'comfortHeat': 5, 'comfortCool': -5}], 'tankStatus': {'operationStatus': 1, 'temperatureNow': 61, 'heatMin': 40, 'heatMax': 75, 'heatSet': 60}}}"
+    real_log_message = "Raw JSON response for device B000000000: {'operation': 'FFFFFFFF', 'ownerFlg': True, 'a2wName': 'My Heat Pump', 'step2ApplicationStatusFlg': False, 'status': {'serviceType': 'STD_ADP-TAW1', 'uncontrollableTaw1Flg': False, 'operationMode': 1, 'coolMode': 1, 'direction': 2, 'quietMode': 0, 'powerful': 0, 'forceDHW': 0, 'forceHeater': 0, 'tank': 1, 'multiOdConnection': 0, 'pumpDuty': 1, 'bivalent': 0, 'bivalentActual': 0, 'waterPressure': 2.18, 'electricAnode': 0, 'deiceStatus': 0, 'specialStatus': 2, 'outdoorNow': 7, 'holidayTimer': 0, 'modelSeriesSelection': 5, 'standAlone': 1, 'controlBox': 0, 'externalHeater': 0, 'zoneStatus': [{'zoneId': 1, 'zoneName': 'House', 'zoneType': 0, 'zoneSensor': 0, 'operationStatus': 1, 'temperatureNow': 49, 'heatMin': -5, 'heatMax': 5, 'coolMin': -5, 'coolMax': 5, 'heatSet': 5, 'coolSet': 0, 'ecoHeat': -5, 'ecoCool': 5, 'comfortHeat': 5, 'comfortCool': -5}], 'tankStatus': {'operationStatus': 1, 'temperatureNow': 61, 'heatMin': 40, 'heatMax': 75, 'heatSet': 60}}}"
     
     # Create mock record and test capture
     record = MockLogRecord(real_log_message)
@@ -49,7 +49,7 @@ def test_log_capture():
     print(f"Captured responses: {_captured_json_responses}")
     
     # Check if we captured the data
-    device_id = "B497204181"
+    device_id = "B000000000"
     if device_id in _captured_json_responses:
         captured_data = _captured_json_responses[device_id]
         print(f"✓ Successfully captured data for device {device_id}")
@@ -81,7 +81,7 @@ def test_real_data_structure():
     real_data = {
         'operation': 'FFFFFFFF',
         'ownerFlg': True,
-        'a2wName': 'Langagervej',
+        'a2wName': 'My Heat Pump',
         'step2ApplicationStatusFlg': False,
         'status': {
             'serviceType': 'STD_ADP-TAW1',

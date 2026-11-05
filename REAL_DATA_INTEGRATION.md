@@ -20,7 +20,7 @@ Key changes:
   - Maps aioaquarea device attributes to integration data structure
   - Handles zones, tank, and system status with proper type conversion
 - **Template Strategy**: Uses known API response structure as template
-  - Based on actual aioaquarea logged response: `{'operation': 'FFFFFFFF', 'a2wName': 'Langagervej', 'status': {...}}`
+  - Based on actual aioaquarea logged response: `{'operation': 'FFFFFFFF', 'a2wName': 'My Heat Pump', 'status': {...}}`
   - Provides realistic data that matches expected API format
 - **Ultimate Fallback**: Creates minimal simulated data structure
 - **Comprehensive Logging**: Extensive debug information to identify working data sources
@@ -106,7 +106,7 @@ All control methods now follow this consistent pattern:
 - Uses actual logged aioaquarea API response as template:
 ```json
 {
-  "a2wName": "Langagervej",
+  "a2wName": "My Heat Pump",
   "status": {
     "operationMode": 1,
     "zoneStatus": [{"temperatureNow": 47, "heatSet": 5}],
@@ -139,8 +139,8 @@ All control methods now follow this consistent pattern:
 The integration can now handle the real aioaquarea library response data shown in your logs:
 
 ```
-Raw JSON response for device B497204181: {
-  'a2wName': 'Langagervej', 
+Raw JSON response for device B000000000: {
+  'a2wName': 'My Heat Pump', 
   'status': {
     'operationMode': 1,
     'outdoorNow': 9,
