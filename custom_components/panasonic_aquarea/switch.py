@@ -1,22 +1,25 @@
-"""Platform for switch integration - Cloud Comfort app controls."""
+"""Switches for the Aquarea special modes (all backed by real aioaquarea calls)."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
-from homeassistant.components.switch import (
-    SwitchEntity,
-    SwitchDeviceClass,
-)
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from . import AquareaDataUpdateCoordinator
 from .const import DOMAIN
+from .controls import (
+    FEATURES,
+    REMOVED_SWITCH_NAMES,
+    AquareaEntity,
+    Feature,
+    async_command,
+    switch_unique_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,791 +31,70 @@ async def async_setup_entry(
 ) -> None:
     """Set up the switch platform."""
     coordinator: AquareaDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
-    entities = []
+    registry = er.async_get(hass)
+
+    entities: list[AquareaSwitch] = []
     for device_id, device_data in coordinator.data.items():
-        # Add Cloud Comfort app control switches for each device
-        entities.extend([
-            AquareaEcoModeSwitch(coordinator, device_id),
-            AquareaComfortModeSwitch(coordinator, device_id),
-            AquareaQuietModeSwitch(coordinator, device_id),
-            AquareaPowerfulModeSwitch(coordinator, device_id),
-            AquareaForceHeaterSwitch(coordinator, device_id),
-            AquareaHolidayModeSwitch(coordinator, device_id),
-            AquareaScheduleEnabledSwitch(coordinator, device_id),
-        ])
-        
-        # Add tank-specific switches if device has a tank
-        device_info = device_data.get("info")
-        raw_data = device_data.get("raw_data")
-        
-        has_tank = False
-        if device_info and hasattr(device_info, 'has_tank'):
-            has_tank = device_info.has_tank
-        elif raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-            has_tank = True
-            
-        if has_tank:
-            entities.extend([
-                AquareaForceDHWSwitch(coordinator, device_id),
-                AquareaDHWPrioritySwitch(coordinator, device_id),
-                AquareaLegionellaModeSwitch(coordinator, device_id),
-                AquareaReheatModeSwitch(coordinator, device_id),
-            ])
-    
+        device = device_data.get("device")
+        if device is None:
+            continue
+
+        # Drop switches from earlier versions that had no API behind them.
+        for name in REMOVED_SWITCH_NAMES:
+            entity_id = registry.async_get_entity_id(
+                "switch", DOMAIN, switch_unique_id(device_id, name)
+            )
+            if entity_id:
+                _LOGGER.info("Removing unsupported switch %s", entity_id)
+                registry.async_remove(entity_id)
+
+        for feature in FEATURES.values():
+            if feature.supported(device):
+                entities.append(AquareaSwitch(coordinator, device_id, feature))
+
     async_add_entities(entities)
 
 
-class AquareaSwitchBase(CoordinatorEntity, SwitchEntity):
-    """Base class for Aquarea switches."""
+class AquareaSwitch(AquareaEntity, SwitchEntity):
+    """One special mode of the heat pump."""
 
     def __init__(
         self,
         coordinator: AquareaDataUpdateCoordinator,
         device_id: str,
-        switch_type: str,
+        feature: Feature,
     ) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator)
-        self._device_id = device_id
-        self._switch_type = switch_type
-        
-        device_data = self.coordinator.data.get(device_id, {})
-        device_info = device_data.get("info")
-        raw_data = device_data.get("raw_data")
-        
-        # Get device name
-        device_name = "Unknown Device"
-        if device_info and hasattr(device_info, 'name'):
-            device_name = device_info.name
-        elif raw_data and 'a2wName' in raw_data:
-            device_name = raw_data['a2wName']
-            
-        self._attr_name = f"{device_name} {switch_type}"
-        self._attr_unique_id = f"{device_id}_{switch_type.lower().replace(' ', '_')}"
-
-    def _log_state_change(self, action: str, old_value: Any = None, new_value: Any = None) -> None:
-        """Log state changes for the Activity widget."""
-        try:
-            # Create a detailed log message for the activity widget
-            if old_value is not None and new_value is not None:
-                message = f"{self._switch_type} {action}: {old_value} → {new_value}"
-            else:
-                message = f"{self._switch_type} {action}"
-            
-            # Log with INFO level to ensure it appears in Home Assistant logs and activity
-            _LOGGER.info("%s for device %s", message, self._device_id)
-            
-            # Fire a custom event for the activity widget
-            if self.hass:
-                self.hass.bus.async_fire(
-                    "panasonic_aquarea_action",
-                    {
-                        "entity_id": self.entity_id,
-                        "device_id": self._device_id,
-                        "switch_type": self._switch_type,
-                        "action": action,
-                        "old_value": old_value,
-                        "new_value": new_value,
-                        "timestamp": dt_util.utcnow().isoformat(),
-                        "device_type": "switch"
-                    }
-                )
-        except Exception as err:
-            _LOGGER.debug("Failed to log state change: %s", err)
+        super().__init__(coordinator, device_id)
+        self._feature = feature
+        self._attr_name = f"{self.device_name} {feature.name}"
+        self._attr_unique_id = switch_unique_id(device_id, feature.name)
+        self._attr_icon = feature.icon
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        """Return device information."""
-        device_data = self.coordinator.data.get(self._device_id, {})
-        device_info = device_data.get("info")
-        raw_data = device_data.get("raw_data")
-        
-        device_name = "Unknown Device"
-        if device_info and hasattr(device_info, 'name'):
-            device_name = device_info.name
-        elif raw_data and 'a2wName' in raw_data:
-            device_name = raw_data['a2wName']
-            
-        return {
-            "identifiers": {(DOMAIN, self._device_id)},
-            "name": device_name,
-            "manufacturer": "Panasonic",
-            "model": "Aquarea Heat Pump",
-        }
+    def is_on(self) -> bool | None:
+        device = self.device
+        return self._feature.is_on(device) if device is not None else None
 
-
-class AquareaEcoModeSwitch(AquareaSwitchBase):
-    """Eco mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the eco mode switch."""
-        super().__init__(coordinator, device_id, "Eco Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:leaf"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('ecoMode', 0))
-        return False
+    async def _async_set(self, on: bool) -> None:
+        device = self.device
+        if device is None:
+            return
+        old = self.is_on
+        await async_command(
+            self.coordinator,
+            lambda: self._feature.setter(device, on),
+            f"turn {'on' if on else 'off'} {self._feature.name.lower()}",
+        )
+        self._fire_action(
+            "switch",
+            "turned on" if on else "turned off",
+            "ON" if old else "OFF",
+            "ON" if on else "OFF",
+            switch_type=self._feature.name,
+        )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return
-
-        _LOGGER.info("Turning on eco mode for device %s", self._device_id)
-        
-        # Log the state change for activity widget
-        self._log_state_change("turned on", "OFF", "ON")
-
-        device = device_data.get("device")
-        
-        # Try to use real API methods first
-        success = False
-        if device:
-            # Try various possible method names for eco mode
-            possible_methods = [
-                'set_eco_mode',
-                'enable_eco_mode',
-                'set_eco',
-                'eco_on',
-                'enable_eco'
-            ]
-            
-            for method_name in possible_methods:
-                if hasattr(device, method_name):
-                    try:
-                        method = getattr(device, method_name)
-                        await method(True)
-                        _LOGGER.info("Successfully turned on eco mode using %s", method_name)
-                        success = True
-                        break
-                    except Exception as err:
-                        _LOGGER.warning("Failed to turn on eco mode using %s: %s", method_name, err)
-                        break
-        
-        if success:
-            # Wait a moment for the change to propagate
-            await asyncio.sleep(0.5)
-            # Trigger coordinator refresh to get updated data
-            await self.coordinator.async_request_refresh()
-        else:
-            # Fallback: Update local data structure for immediate feedback
-            _LOGGER.info("No API method available, updating local data for immediate feedback")
-            raw_data = device_data.get("raw_data")
-            if raw_data and 'status' in raw_data:
-                raw_data['status']['ecoMode'] = 1
-                _LOGGER.info("Updated simulated eco mode to ON")
-                # Trigger a coordinator update to refresh all entities
-                await self.coordinator.async_request_refresh()
-            else:
-                _LOGGER.warning("No raw data available to update eco mode")
+        await self._async_set(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return
-
-        _LOGGER.info("Turning off eco mode for device %s", self._device_id)
-        
-        # Log the state change for activity widget
-        self._log_state_change("turned off", "ON", "OFF")
-
-        device = device_data.get("device")
-        
-        # Try to use real API methods first
-        success = False
-        if device:
-            # Try various possible method names for eco mode
-            possible_methods = [
-                'set_eco_mode',
-                'disable_eco_mode',
-                'set_eco',
-                'eco_off',
-                'disable_eco'
-            ]
-            
-            for method_name in possible_methods:
-                if hasattr(device, method_name):
-                    try:
-                        method = getattr(device, method_name)
-                        await method(False)
-                        _LOGGER.info("Successfully turned off eco mode using %s", method_name)
-                        success = True
-                        break
-                    except Exception as err:
-                        _LOGGER.warning("Failed to turn off eco mode using %s: %s", method_name, err)
-                        continue
-        
-        if success:
-            # Wait a moment for the change to propagate
-            await asyncio.sleep(0.5)
-            # Trigger coordinator refresh to get updated data
-            await self.coordinator.async_request_refresh()
-        else:
-            # Fallback: Update local data structure for immediate feedback
-            _LOGGER.info("No API method available, updating local data for immediate feedback")
-            raw_data = device_data.get("raw_data")
-            if raw_data and 'status' in raw_data:
-                raw_data['status']['ecoMode'] = 0
-                _LOGGER.info("Updated simulated eco mode to OFF")
-                # Trigger a coordinator update to refresh all entities
-                await self.coordinator.async_request_refresh()
-            else:
-                _LOGGER.warning("No raw data available to update eco mode")
-
-
-class AquareaComfortModeSwitch(AquareaSwitchBase):
-    """Comfort mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the comfort mode switch."""
-        super().__init__(coordinator, device_id, "Comfort Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:sofa"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('comfortMode', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_comfort_mode'):
-                await device.set_comfort_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on comfort mode: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_comfort_mode'):
-                await device.set_comfort_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off comfort mode: %s", err)
-
-
-class AquareaQuietModeSwitch(AquareaSwitchBase):
-    """Quiet mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the quiet mode switch."""
-        super().__init__(coordinator, device_id, "Quiet Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:volume-off"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('quietMode', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_quiet_mode'):
-                await device.set_quiet_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on quiet mode: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_quiet_mode'):
-                await device.set_quiet_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off quiet mode: %s", err)
-
-
-class AquareaPowerfulModeSwitch(AquareaSwitchBase):
-    """Powerful mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the powerful mode switch."""
-        super().__init__(coordinator, device_id, "Powerful Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:fire"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('powerful', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_powerful_mode'):
-                await device.set_powerful_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on powerful mode: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_powerful_mode'):
-                await device.set_powerful_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off powerful mode: %s", err)
-
-
-class AquareaForceHeaterSwitch(AquareaSwitchBase):
-    """Force heater switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the force heater switch."""
-        super().__init__(coordinator, device_id, "Force Heater")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:heating-coil"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('forceHeater', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_force_heater'):
-                await device.set_force_heater(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on force heater: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_force_heater'):
-                await device.set_force_heater(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off force heater: %s", err)
-
-
-class AquareaHolidayModeSwitch(AquareaSwitchBase):
-    """Holiday mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the holiday mode switch."""
-        super().__init__(coordinator, device_id, "Holiday Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:beach"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('holidayMode', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_holiday_mode'):
-                await device.set_holiday_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on holiday mode: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_holiday_mode'):
-                await device.set_holiday_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off holiday mode: %s", err)
-
-
-class AquareaScheduleEnabledSwitch(AquareaSwitchBase):
-    """Schedule enabled switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the schedule enabled switch."""
-        super().__init__(coordinator, device_id, "Schedule Enabled")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:calendar-clock"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('scheduleEnabled', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_schedule_enabled'):
-                await device.set_schedule_enabled(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on schedule: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_schedule_enabled'):
-                await device.set_schedule_enabled(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off schedule: %s", err)
-
-
-class AquareaForceDHWSwitch(AquareaSwitchBase):
-    """Force DHW switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the force DHW switch."""
-        super().__init__(coordinator, device_id, "Force DHW")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:water-boiler"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('forceDHW', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_force_dhw'):
-                await device.set_force_dhw(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on force DHW: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_force_dhw'):
-                await device.set_force_dhw(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off force DHW: %s", err)
-
-
-class AquareaDHWPrioritySwitch(AquareaSwitchBase):
-    """DHW priority switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the DHW priority switch."""
-        super().__init__(coordinator, device_id, "DHW Priority")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:priority-high"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data:
-            return bool(raw_data['status'].get('dhwPriority', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_dhw_priority'):
-                await device.set_dhw_priority(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on DHW priority: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_dhw_priority'):
-                await device.set_dhw_priority(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off DHW priority: %s", err)
-
-
-class AquareaLegionellaModeSwitch(AquareaSwitchBase):
-    """Legionella mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the legionella mode switch."""
-        super().__init__(coordinator, device_id, "Legionella Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:shield-check"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-            tank_status = raw_data['status']['tankStatus']
-            return bool(tank_status.get('legionellaMode', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_legionella_mode'):
-                await device.set_legionella_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on legionella mode: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_legionella_mode'):
-                await device.set_legionella_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off legionella mode: %s", err)
-
-
-class AquareaReheatModeSwitch(AquareaSwitchBase):
-    """Reheat mode switch from Cloud Comfort app."""
-
-    def __init__(
-        self,
-        coordinator: AquareaDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize the reheat mode switch."""
-        super().__init__(coordinator, device_id, "Reheat Mode")
-        self._attr_device_class = SwitchDeviceClass.SWITCH
-        self._attr_icon = "mdi:sync"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the switch is on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data:
-            return False
-            
-        raw_data = device_data.get("raw_data")
-        if raw_data and 'status' in raw_data and 'tankStatus' in raw_data['status']:
-            tank_status = raw_data['status']['tankStatus']
-            return bool(tank_status.get('reheatMode', 0))
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_reheat_mode'):
-                await device.set_reheat_mode(True)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn on reheat mode: %s", err)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off."""
-        device_data = self.coordinator.data.get(self._device_id)
-        if not device_data or not device_data.get("device"):
-            return
-
-        device = device_data["device"]
-        try:
-            if hasattr(device, 'set_reheat_mode'):
-                await device.set_reheat_mode(False)
-                await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Failed to turn off reheat mode: %s", err)
+        await self._async_set(False)
