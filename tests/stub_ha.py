@@ -71,7 +71,7 @@ def make_status(zone_temp=49, zone_set=5, op=OperationStatus.ON, mode=ExtendedOp
     return DeviceStatus(long_id="L", operation_status=op, device_status=DeviceModeStatus.NORMAL if hasattr(DeviceModeStatus,'NORMAL') else list(DeviceModeStatus)[0],
         temperature_outdoor=5, operation_mode=mode, fault_status=[], direction=DeviceDirection.PUMP, pump_duty=PumpDuty.ON,
         tank_status=[TankStatus(OperationStatus.ON, 59, 75, 40, tank_set)],
-        zones=[DeviceZoneStatus(1, zone_temp, op, 5, -5, zone_set, 5, -5, 0, 5, -5, -5, 5)],
+        zones=[DeviceZoneStatus(1, zone_temp, op, 35, 10, zone_set, 5, -5, 0, 5, -5, -5, 5)],
         quiet_mode=QuietMode.OFF, force_dhw=ForceDHW.OFF, force_heater=ForceHeater.OFF, holiday_timer=HolidayTimer.OFF,
         powerful_time=PowerfulTime.OFF, special_status=special)
 

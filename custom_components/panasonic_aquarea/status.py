@@ -141,8 +141,16 @@ async def fetch_today_consumption(client, long_id: str, today: dt.date) -> dict[
     if not items:
         return None
 
+    attrs = ("heat_consumption", "cool_consumption", "tank_consumption")
+    if not any(getattr(i, a) is not None for i in items for a in attrs):
+        return None  # rows without any value: unknown, not zero
+
     def total(attr: str) -> float:
         return round(sum(float(v) for i in items if (v := getattr(i, attr)) is not None), 3)
 
-    heat, cool, tank = total("heat_consumption"), total("cool_consumption"), total("tank_consumption")
-    return {"heat": heat, "cool": cool, "tank": tank, "total": round(heat + cool + tank, 3)}
+    heat, cool, tank = (total(a) for a in attrs)
+    result: dict[str, Any] = {"heat": heat, "cool": cool, "tank": tank, "total": round(heat + cool + tank, 3)}
+    rows = [r for i in items if isinstance(r := getattr(i, "raw_data", None), dict)]
+    if rows:
+        result["rows"] = rows  # kept for diagnostics only
+    return result

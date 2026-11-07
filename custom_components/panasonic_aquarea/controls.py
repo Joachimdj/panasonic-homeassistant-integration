@@ -85,12 +85,17 @@ class AquareaEntity(CoordinatorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         info = self._device_data.get("info")
+        status = (self._device_data.get("raw_data") or {}).get("status") or {}
+        # aioaquarea fills model and firmware with "N/A"; do not show that.
+        model = getattr(info, "model", None)
+        firmware = getattr(info, "firmware_version", None)
         return {
             "identifiers": {(DOMAIN, self._device_id)},
             "name": self.device_name,
             "manufacturer": "Panasonic",
-            "model": getattr(info, "model", None) or "Aquarea Heat Pump",
-            "sw_version": getattr(info, "firmware_version", None),
+            "model": model if model not in (None, "", "N/A") else "Aquarea Heat Pump",
+            "sw_version": firmware if firmware not in (None, "", "N/A") else None,
+            "hw_version": status.get("serviceType"),
         }
 
     def _fire_action(self, device_type: str, action: str, old: Any = None, new: Any = None, **extra: Any) -> None:
@@ -198,8 +203,46 @@ def switch_unique_id(device_id: str, name: str) -> str:
 
 
 def is_offset_zone(zone) -> bool:
-    """True when the zone's setpoint is a heating-curve offset, not a temperature."""
-    return (
-        zone.supports_set_temperature
-        and zone.heat_sensor_mode == SensorMode.COMPENSATION_CURVE
-    )
+    """True when the zone's setpoint is a heating-curve offset, not a temperature.
+
+    aioaquarea reports every zone as "Direct" (it fills that field with a
+    constant), so also recognise an offset by its range: a real heating
+    temperature is never negative, an offset such as -5..+5 is.
+    """
+    if not zone.supports_set_temperature:
+        return False
+    if zone.heat_sensor_mode == SensorMode.COMPENSATION_CURVE:
+        return True
+    return zone.heat_min is not None and zone.heat_min < 0
+
+
+def active_zone_ids(data: dict[str, Any], device) -> set[int]:
+    """Zones the unit really reports.
+
+    The library builds zones from the account's group list, which can include
+    zones that the status response does not contain (a phantom "Zone 2").
+    """
+    zones = ((data.get("raw_data") or {}).get("status") or {}).get("zoneStatus") or []
+    ids = {z.get("zoneId") for z in zones if isinstance(z, dict) and z.get("zoneId") is not None}
+    return ids or set(device.zones)
+
+
+def remove_inactive_zone_entities(hass, device_id: str, device, active: set[int]) -> None:
+    """Remove registry entries created for zones the unit does not have."""
+    from homeassistant.helpers import entity_registry as er  # local: avoids import cost at load
+
+    registry = er.async_get(hass)
+    for zone_id, zone in device.zones.items():
+        if zone_id in active:
+            continue
+        candidates = (
+            ("climate", f"{device_id}_zone_{zone_id}"),
+            ("number", f"{device_id}_zone_{zone_id}_offset"),
+            ("sensor", switch_unique_id(device_id, f"{zone.name} Temperature")),
+            ("sensor", switch_unique_id(device_id, f"{zone.name} Operation Status")),
+        )
+        for domain, unique_id in candidates:
+            entity_id = registry.async_get_entity_id(domain, DOMAIN, unique_id)
+            if entity_id:
+                _LOGGER.info("Removing entity %s: the unit has no zone %s", entity_id, zone_id)
+                registry.async_remove(entity_id)

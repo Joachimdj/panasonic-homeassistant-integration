@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .controls import is_offset_zone
 
 TO_REDACT = {
     "username", "password", "email", "unique_id", "title",
@@ -31,7 +32,9 @@ def _zone_summary(zone) -> dict[str, Any]:
         "name": zone.name,
         "type": str(zone.type),
         "sensor": str(zone.sensor_mode),
-        "heat_sensor_mode": str(zone.heat_sensor_mode),
+        # The library always says "Direct"; this is what the integration uses.
+        "library_heat_sensor_mode": str(zone.heat_sensor_mode),
+        "setpoint_is_offset": is_offset_zone(zone),
         "cool_mode": zone.cool_mode,
         "operation_status": zone.operation_status.name,
         "temperature": zone.temperature,

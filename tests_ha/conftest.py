@@ -58,7 +58,7 @@ class FakeCloud:
         self.fail_status = False
         self.fail_posts: str | None = None
         self.auth_error = False
-        self.sensor_mode = SensorMode.COMPENSATION_CURVE
+        self.consumption_rows = [(1.5, 0.5)]  # (heat, tank) per hourly row
 
 
 def make_client_class(cloud: FakeCloud):
@@ -74,10 +74,16 @@ def make_client_class(cloud: FakeCloud):
             if cloud.auth_error:
                 from aioaquarea.errors import AuthenticationError
                 raise AuthenticationError("401", "bad password")
-            zone = DeviceZoneInfo(1, "House", list(ZoneType)[0], False, ZoneSensor.INTERNAL, cloud.sensor_mode, None)
+            # Like aioaquarea 1.0.x: zones come from the group list (so a zone the unit
+            # does not have can appear), names are "Zone N", every zone is "Direct",
+            # and model/firmware are the literal string "N/A".
+            zones = [
+                DeviceZoneInfo(n, f"Zone {n}", list(ZoneType)[0], False, ZoneSensor.INTERNAL, SensorMode.DIRECT, None)
+                for n in (1, 2)
+            ]
             return [types.SimpleNamespace(
-                device_id="B1", long_id="L", name="My Heat Pump", model="WH-MDC", firmware_version="1.0",
-                has_tank=True, zones=[zone])]
+                device_id="B1", long_id="L", name="My Heat Pump", model="N/A", firmware_version="N/A",
+                has_tank=True, zones=zones)]
 
         async def get_device_status(self, info):  # replaced by the coordinator
             raise AssertionError("library status fetch must be replaced")
@@ -89,8 +95,11 @@ def make_client_class(cloud: FakeCloud):
                               i.has_tank, i.zones, st, self)
 
         async def get_device_consumption(self, long_id, aggregation, date):
-            row = types.SimpleNamespace(heat_consumption=1.5, cool_consumption=None, tank_consumption=0.5)
-            return [row]
+            return [
+                types.SimpleNamespace(heat_consumption=h, cool_consumption=None, tank_consumption=t,
+                                      raw_data={"dataTime": f"2026110800{i:02d}", "heatConsumption": h})
+                for i, (h, t) in enumerate(cloud.consumption_rows)
+            ]
 
         def __getattr__(self, name):
             if name.startswith("post_"):
