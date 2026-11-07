@@ -1,0 +1,2 @@
+pytest-homeassistant-custom-component
+aioaquarea>=1.0.7

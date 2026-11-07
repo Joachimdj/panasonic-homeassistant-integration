@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
@@ -78,10 +78,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     # Register custom services for advanced controls
-    await _async_register_services(hass, coordinator)
+    _async_register_services(hass)
     
     # Register activity feed integration
-    _register_activity_feed(hass)
+    entry.async_on_unload(_register_activity_feed(hass))
 
     _LOGGER.info("Panasonic Aquarea integration setup completed successfully")
     return True
@@ -92,9 +92,10 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _register_activity_feed(hass: HomeAssistant) -> None:
+def _register_activity_feed(hass: HomeAssistant):
     """Register activity feed integration for Panasonic Aquarea events."""
     
+    @callback
     def handle_aquarea_action(event):
         """Handle Panasonic Aquarea action events for activity feed."""
         try:
@@ -152,96 +153,93 @@ def _register_activity_feed(hass: HomeAssistant) -> None:
                         # Log the activity with appropriate level
             _LOGGER.info("Activity: %s", message)
             
-            # Use logbook service to create proper activity entries (thread-safe)
-            try:
-                # Use hass.add_job for proper async handling
-                hass.add_job(
-                    hass.services.async_call,
-                    "logbook",
-                    "log", 
-                    {
-                        "name": "Panasonic Aquarea",
-                        "message": message,
-                        "entity_id": data.get("entity_id"),
-                    }
+            # Logbook is optional; only write an entry when its service exists.
+            if hass.services.has_service("logbook", "log"):
+                hass.async_create_task(
+                    hass.services.async_call(
+                        "logbook",
+                        "log",
+                        {
+                            "name": "Panasonic Aquarea",
+                            "message": message,
+                            "entity_id": data.get("entity_id"),
+                        },
+                    )
                 )
-                
-            except Exception as e:
-                _LOGGER.debug("Failed to fire logbook event: %s", e)
-            
+
         except Exception as err:
             _LOGGER.debug("Failed to handle activity event: %s", err)
     
     # Register the event listener
-    hass.bus.async_listen("panasonic_aquarea_action", handle_aquarea_action)
+    return hass.bus.async_listen("panasonic_aquarea_action", handle_aquarea_action)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
-
-    # Unregister services
-    hass.services.async_remove(DOMAIN, SERVICE_SET_ECO_MODE)
-    hass.services.async_remove(DOMAIN, SERVICE_SET_COMFORT_MODE)
-    hass.services.async_remove(DOMAIN, SERVICE_SET_QUIET_MODE)
-    hass.services.async_remove(DOMAIN, SERVICE_SET_POWERFUL_MODE)
-    hass.services.async_remove(DOMAIN, SERVICE_FORCE_DHW)
-    hass.services.async_remove(DOMAIN, SERVICE_FORCE_HEATER)
-    hass.services.async_remove(DOMAIN, SERVICE_SET_HOLIDAY_MODE)
+        # Services are shared by all accounts: remove them with the last entry.
+        if not hass.data[DOMAIN]:
+            for service in SERVICE_FEATURES:
+                hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
 
 
 SERVICE_FEATURES = {
-    SERVICE_SET_ECO_MODE: "eco",
-    SERVICE_SET_COMFORT_MODE: "comfort",
-    SERVICE_SET_QUIET_MODE: "quiet",
-    SERVICE_SET_POWERFUL_MODE: "powerful",
-    SERVICE_FORCE_DHW: "force_dhw",
-    SERVICE_FORCE_HEATER: "force_heater",
-    SERVICE_SET_HOLIDAY_MODE: "holiday",
+    SERVICE_SET_ECO_MODE: ("eco", "climate"),
+    SERVICE_SET_COMFORT_MODE: ("comfort", "climate"),
+    SERVICE_SET_QUIET_MODE: ("quiet", "climate"),
+    SERVICE_SET_POWERFUL_MODE: ("powerful", "climate"),
+    SERVICE_FORCE_DHW: ("force_dhw", "water_heater"),
+    SERVICE_FORCE_HEATER: ("force_heater", "climate"),
+    SERVICE_SET_HOLIDAY_MODE: ("holiday", "climate"),
 }
 
 
-def _device_for_entity(hass: HomeAssistant, coordinator, entity_id: str):
-    """Resolve an entity to its aioaquarea Device through the entity registry."""
+def _device_for_entity(hass: HomeAssistant, entity_id: str):
+    """Resolve an entity (of any loaded account) to (coordinator, Device)."""
     entry = er.async_get(hass).async_get(entity_id)
     if entry is None or entry.platform != DOMAIN:
-        return None
-    for device_id, data in (coordinator.data or {}).items():
-        if entry.unique_id.startswith(f"{device_id}_"):
-            return data.get("device")
-    return None
+        return None, None
+    for coordinator in hass.data.get(DOMAIN, {}).values():
+        for device_id, data in (coordinator.data or {}).items():
+            if entry.unique_id.startswith(f"{device_id}_"):
+                return coordinator, data.get("device")
+    return None, None
 
 
-async def _async_register_services(hass: HomeAssistant, coordinator: AquareaDataUpdateCoordinator) -> None:
-    """Register services; each maps to the same real call the switches use."""
+@callback
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register the services once; each maps to the same real call the switches use."""
 
-    def _make_handler(feature_key: str):
+    def _make_handler(feature_key: str, domain: str):
         feature = FEATURES[feature_key]
 
         async def _handler(call) -> None:
             entity_ids = call.data.get("entity_id", [])
             if isinstance(entity_ids, str):
                 entity_ids = [entity_ids]
-            enabled = call.data.get("enabled", True)
+            enabled = bool(call.data.get("enabled", True))
             for entity_id in entity_ids:
-                device = _device_for_entity(hass, coordinator, entity_id)
+                if entity_id.split(".", 1)[0] != domain:
+                    raise ServiceValidationError(f"{entity_id} must be a {domain} entity")
+                coordinator, device = _device_for_entity(hass, entity_id)
                 if device is None or not feature.supported(device):
                     raise ServiceValidationError(
                         f"{entity_id} does not support {feature.name.lower()}"
                     )
                 await async_command(
                     coordinator,
-                    lambda d=device: feature.setter(d, bool(enabled)),
+                    lambda d=device: feature.setter(d, enabled),
                     f"set {feature.name.lower()}",
                 )
 
         return _handler
 
-    for service, feature_key in SERVICE_FEATURES.items():
-        hass.services.async_register(DOMAIN, service, _make_handler(feature_key))
+    for service, (feature_key, domain) in SERVICE_FEATURES.items():
+        if not hass.services.has_service(DOMAIN, service):
+            hass.services.async_register(DOMAIN, service, _make_handler(feature_key, domain))
 
 
 def _refresh_zones(device: Any) -> None:

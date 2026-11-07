@@ -163,4 +163,11 @@ This integration uses the [aioaquarea](https://github.com/cjaliaga/aioaquarea) l
 
 ## Development
 
-`python tests/test_controls.py` and `python tests/test_status_sensors.py` check every control, the status parsing, the request budget and the sensors against the real `aioaquarea` device classes with Home Assistant stubbed out (needs only `pip install aioaquarea`).
+```bash
+pip install -r requirements_test.txt
+pytest                                # runs the integration in a real Home Assistant with a fake cloud (tests_ha/)
+python tests/test_controls.py         # quick stub-based checks against the real aioaquarea classes
+python tests/test_status_sensors.py
+```
+
+`tests_ha/` covers setup, entity creation and cleanup, every control and service, error reporting, the request budget, the options/reauth/config flows and reload. CI runs it on every pull request.
