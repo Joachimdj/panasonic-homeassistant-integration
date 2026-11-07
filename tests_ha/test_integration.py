@@ -214,3 +214,22 @@ async def test_works_without_logbook(hass, setup_integration):
     await setup_integration()
     hass.bus.async_fire("panasonic_aquarea_action", {"device_type": "climate", "action": "x", "entity_id": "climate.a"})
     await hass.async_block_till_done()  # must not raise ServiceNotFound
+
+
+async def test_diagnostics_are_redacted_and_useful(hass, setup_integration):
+    import json
+    from custom_components.panasonic_aquarea.diagnostics import async_get_config_entry_diagnostics
+
+    entry = await setup_integration()
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    blob = json.dumps(diag, default=str)
+    for secret in ("u@example.com", "pw", "My Heat Pump", "B1", "\"L\""):
+        assert secret not in blob, f"{secret!r} leaked into diagnostics"
+    assert diag["entry"]["data"]["password"] == "**REDACTED**"
+    assert diag["versions"]["aioaquarea"]
+    dev = diag["devices"]["device_0"]
+    assert dev["typed"]["special_status"] == "COMFORT" and dev["typed"]["tank"]["target"] == 60
+    assert dev["typed"]["zones"]["1"]["heat_sensor_mode"].endswith("Compensation curve")
+    assert dev["raw_status"]["status"]["waterPressure"] == 2.18
+    assert diag["coordinator"]["last_update_success"] is True
+    assert dev["measured_consumption_kwh_today"]["total"] == 2.0

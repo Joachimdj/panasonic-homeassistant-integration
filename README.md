@@ -134,6 +134,10 @@ automation:
 
 ## Troubleshooting
 
+### Download diagnostics
+
+Settings → Devices & services → Panasonic Aquarea → ⋮ → **Download diagnostics**. The file contains the poll interval, the last error, the parsed state of the zones and tank, and the raw status the cloud returned. Credentials, your e-mail, device ids and the device name are removed, so it is safe to attach to a bug report.
+
 ### Authentication Issues
 
 - Verify your Panasonic Smart Cloud credentials
