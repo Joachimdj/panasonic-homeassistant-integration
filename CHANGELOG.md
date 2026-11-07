@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1
+
+### Fixes
+- No more phantom **Zone 2**: zone entities are only created for zones the unit reports, and entities an earlier version created for other zones are removed automatically.
+- Heating-curve zones are recognised by their range (an offset such as -5..+5), so they get the `number.*_offset` entity instead of a climate temperature. (aioaquarea reports every zone as "Direct".)
+- Device info no longer shows `N/A` for model and firmware; the adapter type is shown as hardware version.
+- Energy sensors show `unknown` instead of `0.00` when Panasonic returns no values; the raw statistics rows are included in diagnostics.
+
 ## 1.2.0
 
 ### Fewer requests (fixes the account being blocked by Panasonic)
