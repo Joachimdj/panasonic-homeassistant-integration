@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AquareaDataUpdateCoordinator
 from .const import DOMAIN
-from .controls import AquareaEntity, async_command, is_offset_zone
+from .controls import AquareaEntity, active_zone_ids, async_command, is_offset_zone
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,8 +34,9 @@ async def async_setup_entry(
         device = data.get("device")
         if device is None:
             continue
+        active = active_zone_ids(data, device)
         for zone_id, zone in device.zones.items():
-            if is_offset_zone(zone):
+            if zone_id in active and is_offset_zone(zone):
                 entities.append(AquareaOffsetNumber(coordinator, device_id, zone_id, zone.name))
     async_add_entities(entities)
 

@@ -31,7 +31,7 @@ async def test_setup_creates_expected_entities(hass, setup_integration):
 
 async def test_states_come_from_real_data(hass, setup_integration):
     await setup_integration()
-    climate = hass.states.get("climate.my_heat_pump_house")
+    climate = hass.states.get("climate.my_heat_pump_zone_1")
     assert climate.state == "heat"
     assert climate.attributes["preset_mode"] == "comfort"
     assert climate.attributes["setpoint_type"] == "compensation"
@@ -40,7 +40,7 @@ async def test_states_come_from_real_data(hass, setup_integration):
     wh = hass.states.get("water_heater.my_heat_pump_water_heater")
     assert wh.attributes["current_temperature"] == 61 and wh.attributes["temperature"] == 60
     assert wh.state == "heat_pump"
-    assert hass.states.get("number.my_heat_pump_house_offset").state == "5.0"
+    assert hass.states.get("number.my_heat_pump_zone_1_offset").state == "5.0"
     assert hass.states.get("sensor.my_heat_pump_water_pressure").state == "2.18"
     assert hass.states.get("sensor.my_heat_pump_energy_today").state == "2.0"
 
@@ -86,20 +86,20 @@ async def test_water_heater_target_and_validation(hass, setup_integration, cloud
 async def test_offset_number_and_climate_rejection(hass, setup_integration, cloud):
     await setup_integration()
     await hass.services.async_call("number", "set_value",
-        {"entity_id": "number.my_heat_pump_house_offset", "value": 2}, blocking=True)
+        {"entity_id": "number.my_heat_pump_zone_1_offset", "value": 2}, blocking=True)
     assert calls(cloud, "post_device_zone_heat_temperature") == [("L", 1, 2)]
     with pytest.raises(Exception):
         await hass.services.async_call("climate", "set_temperature",
-            {"entity_id": "climate.my_heat_pump_house", "temperature": 3}, blocking=True)
+            {"entity_id": "climate.my_heat_pump_zone_1", "temperature": 3}, blocking=True)
 
 
 async def test_climate_hvac_off_and_preset(hass, setup_integration, cloud):
     await setup_integration()
     await hass.services.async_call("climate", "set_hvac_mode",
-        {"entity_id": "climate.my_heat_pump_house", "hvac_mode": "off"}, blocking=True)
+        {"entity_id": "climate.my_heat_pump_zone_1", "hvac_mode": "off"}, blocking=True)
     assert calls(cloud, "post_device_operation_update")[0][1] == UpdateOperationMode.OFF
     await hass.services.async_call("climate", "set_preset_mode",
-        {"entity_id": "climate.my_heat_pump_house", "preset_mode": "eco"}, blocking=True)
+        {"entity_id": "climate.my_heat_pump_zone_1", "preset_mode": "eco"}, blocking=True)
     assert calls(cloud, "post_device_set_special_status")[0][1] == SpecialStatus.ECO
 
 
@@ -113,7 +113,7 @@ async def test_api_failure_reaches_the_user(hass, setup_integration, cloud):
 async def test_custom_service_uses_same_real_call(hass, setup_integration, cloud):
     await setup_integration()
     await hass.services.async_call(DOMAIN, "set_quiet_mode",
-        {"entity_id": ["climate.my_heat_pump_house"], "enabled": True}, blocking=True)
+        {"entity_id": ["climate.my_heat_pump_zone_1"], "enabled": True}, blocking=True)
     assert calls(cloud, "post_device_set_quiet_mode")[0][1] == QuietMode.LEVEL1
     cloud.calls.clear()
     with pytest.raises(ServiceValidationError):  # wrong domain is rejected
@@ -121,7 +121,7 @@ async def test_custom_service_uses_same_real_call(hass, setup_integration, cloud
             {"entity_id": ["sensor.my_heat_pump_outdoor_temperature"], "enabled": True}, blocking=True)
     with pytest.raises(ServiceValidationError):  # force_dhw targets the water heater only
         await hass.services.async_call(DOMAIN, "force_dhw",
-            {"entity_id": ["climate.my_heat_pump_house"], "enabled": True}, blocking=True)
+            {"entity_id": ["climate.my_heat_pump_zone_1"], "enabled": True}, blocking=True)
     assert cloud.calls == []
     await hass.services.async_call(DOMAIN, "force_dhw",
         {"entity_id": ["water_heater.my_heat_pump_water_heater"], "enabled": True}, blocking=True)
@@ -229,7 +229,76 @@ async def test_diagnostics_are_redacted_and_useful(hass, setup_integration):
     assert diag["versions"]["aioaquarea"]
     dev = diag["devices"]["device_0"]
     assert dev["typed"]["special_status"] == "COMFORT" and dev["typed"]["tank"]["target"] == 60
-    assert dev["typed"]["zones"]["1"]["heat_sensor_mode"].endswith("Compensation curve")
+    assert dev["typed"]["zones"]["1"]["setpoint_is_offset"] is True
+    assert "2" in dev["typed"]["zones"]  # library zones are listed even if the unit has none
     assert dev["raw_status"]["status"]["waterPressure"] == 2.18
     assert diag["coordinator"]["last_update_success"] is True
     assert dev["measured_consumption_kwh_today"]["total"] == 2.0
+
+
+def _direct_payload(heat_min=20, heat_max=55, heat_set=35):
+    import copy
+    from .conftest import REAL
+    p = copy.deepcopy(REAL)
+    z = p["status"]["zoneStatus"][0]
+    z.update(heatMin=heat_min, heatMax=heat_max, heatSet=heat_set, temperatureNow=33)
+    return p
+
+
+async def test_phantom_zone_gets_no_entities_and_is_cleaned_up(hass, cloud):
+    from unittest.mock import patch
+    from .conftest import make_client_class
+    reg = er.async_get(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data={"username": "u@example.com", "password": "pw"}, unique_id="u@example.com")
+    entry.add_to_hass(hass)
+    # entries created by an earlier version for the zone the unit does not have
+    reg.async_get_or_create("climate", DOMAIN, "B1_zone_2", config_entry=entry)
+    reg.async_get_or_create("sensor", DOMAIN, "B1_zone_2_temperature", config_entry=entry)
+    with patch(f"custom_components.{DOMAIN}.Client", make_client_class(cloud)):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        ids = {e.unique_id for e in er.async_entries_for_config_entry(reg, entry.entry_id)}
+        assert not any("zone_2" in u for u in ids), sorted(ids)
+        assert "B1_zone_1" in ids and "B1_zone_1_temperature" in ids
+        assert hass.states.get("climate.my_heat_pump_zone_2") is None
+        await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_offset_zone_detected_by_range_although_library_says_direct(hass, setup_integration):
+    await setup_integration()  # REAL payload: heat range -5..5, library reports "Direct"
+    assert hass.states.get("number.my_heat_pump_zone_1_offset") is not None
+    assert "temperature" not in hass.states.get("climate.my_heat_pump_zone_1").attributes
+
+
+async def test_direct_zone_uses_climate_target_not_offset(hass, setup_integration, cloud):
+    cloud.payload = _direct_payload()
+    await setup_integration()
+    assert hass.states.get("number.my_heat_pump_zone_1_offset") is None
+    state = hass.states.get("climate.my_heat_pump_zone_1")
+    assert state.attributes["temperature"] == 35 and state.attributes["min_temp"] == 20
+    await hass.services.async_call("climate", "set_temperature",
+        {"entity_id": "climate.my_heat_pump_zone_1", "temperature": 40}, blocking=True)
+    assert calls(cloud, "post_device_zone_heat_temperature") == [("L", 1, 40)]
+
+
+async def test_device_info_has_no_na_values(hass, setup_integration):
+    from homeassistant.helpers import device_registry as dr
+    await setup_integration()
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "B1")})
+    assert device.model == "Aquarea Heat Pump"
+    assert device.sw_version is None
+    assert device.hw_version == "STD_ADP-TAW1"
+
+
+async def test_energy_is_unknown_not_zero_without_values(hass, setup_integration, cloud):
+    cloud.consumption_rows = [(None, None), (None, None)]
+    await setup_integration()
+    assert hass.states.get("sensor.my_heat_pump_energy_today").state == "unknown"
+
+
+async def test_energy_rows_are_in_diagnostics(hass, setup_integration):
+    from custom_components.panasonic_aquarea.diagnostics import async_get_config_entry_diagnostics
+    entry = await setup_integration()
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    rows = diag["devices"]["device_0"]["measured_consumption_kwh_today"]["rows"]
+    assert rows and "dataTime" in rows[0]

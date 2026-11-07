@@ -8,7 +8,6 @@ from aioaquarea.data import (
     DeviceAction,
     ExtendedOperationMode,
     OperationStatus,
-    SensorMode,
     SpecialStatus,
     UpdateOperationMode,
 )
@@ -26,7 +25,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AquareaDataUpdateCoordinator
 from .const import COMFORT_COMFORT, COMFORT_ECO, COMFORT_NORMAL, DOMAIN
-from .controls import AquareaEntity, async_command, is_offset_zone
+from .controls import (
+    AquareaEntity,
+    active_zone_ids,
+    async_command,
+    is_offset_zone,
+    remove_inactive_zone_entities,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,8 +67,11 @@ async def async_setup_entry(
         device = device_data.get("device")
         if device is None:
             continue
+        active = active_zone_ids(device_data, device)
+        remove_inactive_zone_entities(hass, device_id, device, active)
         for zone_id, zone in device.zones.items():
-            entities.append(AquareaClimate(coordinator, device_id, zone_id, zone.name))
+            if zone_id in active:
+                entities.append(AquareaClimate(coordinator, device_id, zone_id, zone.name))
     async_add_entities(entities)
 
 
@@ -196,11 +204,10 @@ class AquareaClimate(AquareaEntity, ClimateEntity):
         device, zone = self.device, self.zone
         if device is None or zone is None:
             return None
-        sensor = zone.cool_sensor_mode if self._cooling_mode else zone.heat_sensor_mode
         return {
             # "compensation" means the target is an offset on the heating curve,
             # not an absolute room/flow temperature.
-            "setpoint_type": "compensation" if sensor == SensorMode.COMPENSATION_CURVE else "direct",
+            "setpoint_type": "compensation" if is_offset_zone(zone) else "direct",
             "offset": self.target_temperature if is_offset_zone(zone) else None,
             "outdoor_temperature": device.temperature_outdoor,
             "quiet_mode": device.quiet_mode.name.lower(),

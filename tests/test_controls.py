@@ -33,7 +33,7 @@ async def main():
     check("hvac_mode HEAT", c.hvac_mode == HVACMode.HEAT, c.hvac_mode)
     check("current temp from library (not /10)", c.current_temperature == 49.0)
     check("target from library", c.target_temperature == 5.0)
-    check("min/max from zone", (c.min_temp, c.max_temp) == (-5.0, 5.0), (c.min_temp, c.max_temp))
+    check("min/max from zone", (c.min_temp, c.max_temp) == (10.0, 35.0), (c.min_temp, c.max_temp))
     check("hvac_modes no cool without cooling", c.hvac_modes == [HVACMode.OFF, HVACMode.HEAT])
     check("preset comfort", c.preset_mode == "comfort", c.preset_mode)
     check("setpoint type direct", c.extra_state_attributes["setpoint_type"] == "direct")
@@ -41,10 +41,10 @@ async def main():
 
     # --- climate writes ---
     client.calls.clear(); coord.refreshes = 0
-    await c.async_set_temperature(temperature=3)
-    check("set_temperature -> heat endpoint w/ zone", client.calls == [("post_device_zone_heat_temperature", ("L", 1, 3))], client.calls)
+    await c.async_set_temperature(temperature=25)
+    check("set_temperature -> heat endpoint w/ zone", client.calls == [("post_device_zone_heat_temperature", ("L", 1, 25))], client.calls)
     check("refresh requested after write", coord.refreshes == 1)
-    for bad in (9, -9):
+    for bad in (9, 99):
         try: await c.async_set_temperature(temperature=bad); check(f"out of range {bad} rejected", False)
         except SVE: check(f"out of range {bad} rejected", True)
     client.calls.clear()
@@ -59,7 +59,7 @@ async def main():
     # failure surfaces
     async def boom(*a, **k): raise RuntimeError("429")
     client.post_device_zone_heat_temperature = boom
-    try: await c.async_set_temperature(temperature=2); check("API failure raises HomeAssistantError", False)
+    try: await c.async_set_temperature(temperature=25); check("API failure raises HomeAssistantError", False)
     except HAError: check("API failure raises HomeAssistantError", True)
     del client.post_device_zone_heat_temperature
 

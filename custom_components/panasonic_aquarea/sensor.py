@@ -31,7 +31,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AquareaDataUpdateCoordinator
 from .const import DOMAIN
-from .controls import AquareaEntity
+from .controls import AquareaEntity, active_zone_ids
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,7 +162,10 @@ async def async_setup_entry(
                 _LOGGER.info("Removing obsolete sensor %s", entity_id)
                 registry.async_remove(entity_id)
 
+        active = active_zone_ids(data, device)
         for zone_id, zone in device.zones.items():
+            if zone_id not in active:
+                continue
             entities.append(AquareaSensor(
                 coordinator, device_id,
                 SensorDef(
