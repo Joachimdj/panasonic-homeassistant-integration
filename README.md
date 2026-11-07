@@ -1,3 +1,5 @@
+<p align="center"><img src="images/icon.png" width="128" alt="Panasonic Aquarea integration icon"></p>
+
 # Panasonic Aquarea Home Assistant Integration
 
 A custom Home Assistant integration for Panasonic Aquarea heat pumps using the aioaquarea library.
