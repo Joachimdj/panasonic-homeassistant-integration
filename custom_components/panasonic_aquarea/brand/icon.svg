@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B4F6C"/>
+      <stop offset="1" stop-color="#17A2A0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- outdoor unit fan -->
+  <g fill="#fff">
+    <circle cx="240" cy="240" r="158" fill="none" stroke="#fff" stroke-width="22"/>
+    <g id="blade">
+      <path d="M240 240 C196 190 204 136 240 100 C284 134 286 196 240 240Z"/>
+    </g>
+    <use href="#blade" transform="rotate(90 240 240)"/>
+    <use href="#blade" transform="rotate(180 240 240)"/>
+    <use href="#blade" transform="rotate(270 240 240)"/>
+    <circle cx="240" cy="240" r="30" fill="#0B4F6C" stroke="#fff" stroke-width="14"/>
+  </g>
+  <!-- heat badge -->
+  <circle cx="392" cy="392" r="84" fill="#FF8A3D" stroke="#0E6E80" stroke-width="14"/>
+  <path fill="#fff" d="M392 330 C422 364 438 386 424 416 C414 438 370 438 360 414 C350 390 372 372 392 330Z"/>
+  <path fill="#FF8A3D" d="M392 378 C404 392 410 402 404 414 C400 424 384 424 380 414 C376 404 384 396 392 378Z"/>
+</svg>
